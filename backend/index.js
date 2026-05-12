@@ -14,13 +14,22 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "*", // For development
+    origin: [
+      "http://localhost:5173",
+      "https://pulse-board-mauve.vercel.app",
+    ],
     methods: ["GET", "POST", "PUT", "DELETE"],
   },
 });
 setIO(io);
 
-app.use(cors());
+app.use(cors({
+  origin: [
+    "http://localhost:5173",
+    "https://pulse-board-mauve.vercel.app",
+  ],
+  credentials: true,
+}));
 app.use(express.json());
 
 // Routes
