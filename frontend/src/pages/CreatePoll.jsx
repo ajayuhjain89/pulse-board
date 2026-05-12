@@ -63,7 +63,7 @@ const CreatePoll = () => {
         title,
         description,
         isAnonymous,
-        expiresAt,
+        expiresAt: new Date(expiresAt).toISOString(),
         questions,
       });
       toast.success("Poll created successfully!");
