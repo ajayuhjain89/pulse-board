@@ -6,7 +6,7 @@ import { Link, useParams } from "react-router-dom";
 import { io } from "socket.io-client";
 import { useAuth } from "../context/AuthContext";
 
-const SOCKET_SERVER_URL = "http://localhost:5001";
+const SOCKET_SERVER_URL = import.meta.env.VITE_API_URL;
 
 const PollResults = () => {
   const { id } = useParams();

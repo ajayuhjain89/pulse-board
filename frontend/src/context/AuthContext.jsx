@@ -2,7 +2,7 @@ import { googleLogout } from "@react-oauth/google";
 import axios from "axios";
 import { createContext, useContext, useEffect, useState } from "react";
 
-axios.defaults.baseURL = "http://localhost:5001/api";
+axios.defaults.baseURL = `${import.meta.env.VITE_API_URL}/api`;
 
 const AuthContext = createContext();
 
