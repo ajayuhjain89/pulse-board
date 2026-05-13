@@ -47,16 +47,16 @@ const Home = () => {
     <div className="animate-fade-in">
       {/* HERO */}
       <div className="hero-section">
-        <div className="hero-meta-row">
+        <div className="hero-meta-row animate-slide-up" style={{ animationDelay: "0ms" }}>
           <span className="section-label">PulseBoard 1.0</span>
           <span className="section-label">Enterprise Polling</span>
         </div>
 
-        <h1 className="hero-headline animate-slide-up">
+        <h1 className="hero-headline animate-slide-up" style={{ animationDelay: "100ms", marginTop: "1rem" }}>
           Capture the room's pulse <em>instantly.</em>
         </h1>
 
-        <div className="hero-foot mt-16 max-w-2xl">
+        <div className="hero-foot mt-18 max-w-2xl animate-slide-up" style={{ animationDelay: "200ms" }}>
           <p className="hero-tagline text-left">
             Create engaging polls, share them in seconds, and watch insights
             roll in real-time. The most elegant way to make data-driven
@@ -76,13 +76,9 @@ const Home = () => {
       <hr style={{ border: "none", height: "1px", background: "var(--hairline-strong)", margin: "0" }} />
 
       {/* STATS ROW */}
-      <div
-        ref={pollsRef}
-        style={{
+      <div ref={pollsRef} className="animate-slide-up" style={{
           display: "grid",
-          gridTemplateColumns: "1fr 1px 1fr 1px 1fr",
-          padding: "3rem 0",
-          marginBottom: "0",
+          gridTemplateColumns: "1fr 1px 1fr 1px 1fr", padding: "5rem 0", marginBottom: "3rem", animationDelay: "300ms", animationFillMode: "both"
         }}
       >
         <div style={{ textAlign: "center" }}>
@@ -124,11 +120,8 @@ const Home = () => {
       </div>
 
       {/* FEATURES */}
-      <div
-        className="feature-row mt-0"
-        style={{ background: "transparent", gap: 0, overflow: "visible", marginTop: 0 }}
-      >
-        <div style={{ paddingLeft: "2rem" }}>
+      <div className="feature-row animate-slide-up" style={{ animationDelay: "350ms", background: "transparent", gap: 0, overflow: "visible", marginTop: "6rem" }}>
+        <div className="animate-slide-up" style={{ animationDelay: "400ms", paddingLeft: "2rem" }}>
           <span className="section-label block mb-4">01</span>
           <h3 className="display-sm mb-3">Lightning</h3>
           <p className="hero-tagline text-sm feature-col-body" style={{ minHeight: "120px" }}>
@@ -136,7 +129,7 @@ const Home = () => {
             under 60 seconds.
           </p>
         </div>
-        <div style={{ borderLeft: "1px solid var(--hairline)", borderRight: "1px solid var(--hairline)", padding: "0 2rem" }}>
+        <div className="animate-slide-up" style={{ animationDelay: "450ms", borderLeft: "1px solid var(--hairline)", borderRight: "1px solid var(--hairline)", padding: "0 2rem" }}>
           <span className="section-label block mb-4">02</span>
           <h3 className="display-sm mb-3">Sharing</h3>
           <p className="hero-tagline text-sm feature-col-body" style={{ minHeight: "120px" }}>
@@ -144,7 +137,7 @@ const Home = () => {
             anonymously or gated.
           </p>
         </div>
-        <div style={{ paddingLeft: "2rem" }}>
+        <div className="animate-slide-up" style={{ animationDelay: "500ms", paddingLeft: "2rem" }}>
           <span className="section-label block mb-4">03</span>
           <h3 className="display-sm mb-3">Analytics</h3>
           <p className="hero-tagline text-sm feature-col-body" style={{ minHeight: "120px" }}>
@@ -207,16 +200,20 @@ const Home = () => {
 
       {/* CTA BAND */}
       <div
+        className="polished-panel"
         style={{
-          background: "var(--ink)",
-          borderRadius: "10px",
-          padding: "3rem 2.5rem",
+          background: "linear-gradient(135deg, var(--ink) 0%, color-mix(in srgb, var(--ink) 85%, var(--accent)) 100%)",
+          borderRadius: "16px",
+          padding: "4rem 3rem",
           marginBottom: "4rem",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
           gap: "2rem",
           flexWrap: "wrap",
+          boxShadow: "0 20px 40px -10px color-mix(in srgb, var(--ink) 20%, transparent)",
+          position: "relative",
+          overflow: "hidden"
         }}
       >
         <div>
@@ -233,7 +230,7 @@ const Home = () => {
           >
             Ready to pulse your team?
           </h2>
-          <p style={{ color: "rgba(245,243,240,0.5)", fontSize: "0.9375rem", marginTop: "0.5rem", marginBottom: 0 }}>
+          <p style={{ color: "color-mix(in srgb, var(--paper) 60%, transparent)", fontSize: "1rem", marginTop: "0.75rem", marginBottom: 0 }}>
             Free during beta · No credit card required
           </p>
         </div>
