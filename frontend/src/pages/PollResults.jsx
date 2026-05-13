@@ -61,6 +61,8 @@ const PollResults = () => {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
   const [isPublishing, setIsPublishing] = useState(false);
+  const [openVoterMenu, setOpenVoterMenu] = useState(null);
+  const voterMenuRef = useRef(null);
 
   const fetchResults = useCallback(async () => {
     try {
@@ -101,6 +103,30 @@ const PollResults = () => {
     return () => { socket.disconnect(); };
   }, [id, fetchResults]);
 
+  useEffect(() => {
+    if (!openVoterMenu) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (voterMenuRef.current && !voterMenuRef.current.contains(event.target)) {
+        setOpenVoterMenu(null);
+      }
+    };
+
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setOpenVoterMenu(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [openVoterMenu]);
+
   const handlePublish = async () => {
     setIsPublishing(true);
     try {
@@ -113,6 +139,36 @@ const PollResults = () => {
       setIsPublishing(false);
     }
   };
+
+  const renderVoterAvatar = (voter, size = 28) => (
+    voter.avatar ? (
+      <img
+        src={voter.avatar}
+        alt="Avatar"
+        style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }}
+      />
+    ) : (
+      <div
+        style={{
+          width: size,
+          height: size,
+          borderRadius: "50%",
+          background: "var(--hairline-strong)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: `${Math.max(10, Math.round(size * 0.35))}px`,
+          fontWeight: 700,
+          color: "var(--ink)",
+          flexShrink: 0,
+        }}
+      >
+        {voter.name ? voter.name.charAt(0).toUpperCase() : "?"}
+      </div>
+    )
+  );
+
+  const renderVoterName = (voter) => voter.name || (voter.email ? voter.email.split("@")[0] : "Unknown");
 
   if (loading)
     return (
@@ -319,7 +375,7 @@ const PollResults = () => {
                   const isWinner = totalVotes > 0 && opt._id === winningOptionId;
 
                   return (
-                    <div key={opt._id}>
+                    <div key={opt._id} style={{ position: "relative" }}>
                       <div
                         style={{
                           display: "flex",
@@ -365,30 +421,138 @@ const PollResults = () => {
                       <AnimatedBar percentage={percentage} isWinner={isWinner} delay={optIdx * 80} />
                       {/* Votors List for Non-Anonymous Polls */}
                       {analyticsOpt && analyticsOpt.voters && analyticsOpt.voters.length > 0 && (
-                        <div style={{ marginTop: "0.5rem", display: "flex", flexWrap: "wrap", gap: "0.375rem" }}>
-                          {analyticsOpt.voters.map((v, vIdx) => (
-                            <div key={vIdx} style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              background: "var(--subtle)",
-                              border: "1px solid var(--hairline)",
-                              borderRadius: "4px",
-                              padding: "0.25rem 0.5rem",
-                              fontSize: "0.6875rem",
-                              color: "var(--ink-2)",
-                              gap: "4px"
-                            }}>
-                              {v.avatar ? (
-                                <img src={v.avatar} alt="Avatar" style={{ width: 14, height: 14, borderRadius: "50%" }} />
-                              ) : (
-                                <div style={{ width: 14, height: 14, borderRadius: "50%", background: "var(--hairline-strong)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "8px", fontWeight: "bold" }}>
-                                  {v.name ? v.name.charAt(0).toUpperCase() : "?"}
+                        analyticsOpt.voters.length > 2 ? (
+                          <div
+                            ref={voterMenuRef}
+                            style={{ marginTop: "0.5rem", position: "relative" }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpenVoterMenu(openVoterMenu === opt._id ? null : opt._id);
+                              }}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "0.55rem",
+                                padding: "0.4rem 0.6rem 0.4rem 0.45rem",
+                                borderRadius: "999px",
+                                border: "1px solid var(--hairline)",
+                                background: "var(--subtle)",
+                                color: "var(--ink-2)",
+                                cursor: "pointer",
+                                boxShadow: "0 10px 24px -18px rgba(0,0,0,0.35)",
+                              }}
+                            >
+                              <div style={{ display: "flex", alignItems: "center", paddingLeft: "0.15rem" }}>
+                                {analyticsOpt.voters.slice(0, 3).map((voter, voterIndex) => (
+                                  <div
+                                    key={voterIndex}
+                                    style={{
+                                      marginLeft: voterIndex === 0 ? 0 : "-0.4rem",
+                                      border: "1px solid var(--paper)",
+                                      borderRadius: "50%",
+                                      boxShadow: "0 6px 16px -10px rgba(0,0,0,0.45)",
+                                    }}
+                                  >
+                                    {renderVoterAvatar(voter, 22)}
+                                  </div>
+                                ))}
+                              </div>
+                              <span style={{ fontSize: "0.6875rem", fontWeight: 600, letterSpacing: "0.01em" }}>
+                                +{analyticsOpt.voters.length - 3} more
+                              </span>
+                            </button>
+
+                            {openVoterMenu === opt._id && (
+                              <div
+                                style={{
+                                  position: "absolute",
+                                  top: "calc(100% + 0.6rem)",
+                                  left: 0,
+                                  zIndex: 30,
+                                  minWidth: "280px",
+                                  maxWidth: "360px",
+                                  background: "var(--paper)",
+                                  border: "1px solid var(--hairline)",
+                                  borderRadius: "14px",
+                                  boxShadow: "0 28px 60px -28px rgba(0,0,0,0.38)",
+                                  padding: "0.75rem",
+                                }}
+                              >
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.65rem" }}>
+                                  <span className="section-label">All voters</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setOpenVoterMenu(null)}
+                                    style={{
+                                      border: "none",
+                                      background: "transparent",
+                                      color: "var(--ink-3)",
+                                      cursor: "pointer",
+                                      fontSize: "0.75rem",
+                                    }}
+                                  >
+                                    Close
+                                  </button>
                                 </div>
-                              )}
-                              <span>{v.name || v.email.split('@')[0]}</span>
-                            </div>
-                          ))}
-                        </div>
+                                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", maxHeight: "260px", overflowY: "auto", paddingRight: "0.15rem" }}>
+                                  {analyticsOpt.voters.map((voter, voterIndex) => (
+                                    <div
+                                      key={voterIndex}
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: "0.65rem",
+                                        padding: "0.45rem 0.5rem",
+                                        borderRadius: "10px",
+                                        background: "var(--subtle)",
+                                        border: "1px solid var(--hairline)",
+                                      }}
+                                    >
+                                      {renderVoterAvatar(voter, 28)}
+                                      <div style={{ minWidth: 0 }}>
+                                        <div style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--ink)", lineHeight: 1.2 }}>
+                                          {renderVoterName(voter)}
+                                        </div>
+                                        {voter.email && (
+                                          <div style={{ fontSize: "0.6875rem", color: "var(--ink-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "220px" }}>
+                                            {voter.email}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div style={{ marginTop: "0.5rem", display: "flex", flexWrap: "wrap", gap: "0.375rem" }}>
+                            {analyticsOpt.voters.map((v, vIdx) => (
+                              <div key={vIdx} style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                background: "var(--subtle)",
+                                border: "1px solid var(--hairline)",
+                                borderRadius: "4px",
+                                padding: "0.25rem 0.5rem",
+                                fontSize: "0.6875rem",
+                                color: "var(--ink-2)",
+                                gap: "4px"
+                              }}>
+                                {v.avatar ? (
+                                  <img src={v.avatar} alt="Avatar" style={{ width: 14, height: 14, borderRadius: "50%" }} />
+                                ) : (
+                                  <div style={{ width: 14, height: 14, borderRadius: "50%", background: "var(--hairline-strong)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "8px", fontWeight: "bold" }}>
+                                    {v.name ? v.name.charAt(0).toUpperCase() : "?"}
+                                  </div>
+                                )}
+                                <span>{v.name || v.email.split('@')[0]}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )
                       )}
                     </div>
                   );
