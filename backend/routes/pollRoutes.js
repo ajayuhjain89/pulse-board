@@ -228,7 +228,7 @@ router.get("/:id/results", async (req, res) => {
       return res.status(403).json({ message: "Results are not published yet" });
     }
 
-    const responses = await Response.find({ pollId: poll._id });
+    const responses = await Response.find({ pollId: poll._id }).populate("userId", "name email avatar");
     const analytics = calculateAnalytics(poll, responses);
 
     res.json({ poll, totalResponses: responses.length, analytics });
@@ -247,6 +247,7 @@ function calculateAnalytics(poll, responses) {
         id: opt._id.toString(),
         text: opt.text,
         count: 0,
+        voters: []
       })),
     };
   });
@@ -255,10 +256,17 @@ function calculateAnalytics(poll, responses) {
     res.answers.forEach((ans) => {
       if (analytics[ans.questionId.toString()]) {
         const option = analytics[ans.questionId.toString()].options.find(
-          (o) => o.id === ans.optionId.toString(),
+          (o) => o.id === ans.optionId.toString()
         );
         if (option) {
           option.count += 1;
+          if (!poll.isAnonymous && res.userId) {
+            option.voters.push({
+              name: res.userId.name,
+              email: res.userId.email,
+              avatar: res.userId.avatar
+            });
+          }
         }
       }
     });

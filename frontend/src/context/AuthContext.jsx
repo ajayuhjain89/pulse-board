@@ -6,11 +6,16 @@ axios.defaults.baseURL = `${import.meta.env.VITE_API_URL}/api`;
 
 const AuthContext = createContext();
 
+const savedUserInit = localStorage.getItem("user");
+const initialUser = savedUserInit ? JSON.parse(savedUserInit) : null;
+
+// Ensure token is applied synchronously before any React component mounts and requests
+if (initialUser?.token) {
+  axios.defaults.headers.common["Authorization"] = `Bearer ${initialUser.token}`;
+}
+
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(() => {
-    const savedUser = localStorage.getItem("user");
-    return savedUser ? JSON.parse(savedUser) : null;
-  });
+  const [user, setUser] = useState(initialUser);
 
   const loading = false;
 
@@ -28,6 +33,20 @@ export const AuthProvider = ({ children }) => {
     localStorage.setItem("user", JSON.stringify(data));
   };
 
+  const verifyOtp = async (email, otp) => {
+    const { data } = await axios.post("/auth/verify-otp", { email, otp });
+    setUser(data);
+    localStorage.setItem("user", JSON.stringify(data));
+  };
+
+  const forgotPassword = async (email) => {
+    return await axios.post("/auth/forgot-password", { email });
+  };
+
+  const resetPassword = async (email, otp, newPassword) => {
+    return await axios.post("/auth/reset-password", { email, otp, newPassword });
+  };
+
   const loginWithGoogle = async (token) => {
     const { data } = await axios.post("/auth/google", { token });
     setUser(data);
@@ -40,6 +59,7 @@ export const AuthProvider = ({ children }) => {
       email,
       password,
     });
+    if (data.requiresOTP) return data;
     setUser(data);
     localStorage.setItem("user", JSON.stringify(data));
   };
@@ -52,7 +72,7 @@ export const AuthProvider = ({ children }) => {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, login, loginWithGoogle, register, logout }}
+      value={{ user, loading, login, verifyOtp, forgotPassword, resetPassword, loginWithGoogle, register, logout }}
     >
       {children}
     </AuthContext.Provider>

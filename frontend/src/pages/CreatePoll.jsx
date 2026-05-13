@@ -10,20 +10,16 @@ const CreatePoll = () => {
   const [description, setDescription] = useState("");
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [expiresAt, setExpiresAt] = useState("");
-
   const [questions, setQuestions] = useState([
     { text: "", isOptional: false, options: [{ text: "" }, { text: "" }] },
   ]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const addQuestion = () =>
-    setQuestions([
-      ...questions,
-      { text: "", isOptional: false, options: [{ text: "" }, { text: "" }] },
-    ]);
+    setQuestions([...questions, { text: "", isOptional: false, options: [{ text: "" }, { text: "" }] }]);
 
   const removeQuestion = (qIndex) => {
-    if (questions.length === 1)
-      return toast.error("Minimum one question is required.");
+    if (questions.length === 1) return toast.error("Minimum one question is required.");
     setQuestions(questions.filter((_, i) => i !== qIndex));
   };
 
@@ -41,11 +37,8 @@ const CreatePoll = () => {
 
   const removeOption = (qIndex, oIndex) => {
     const updated = [...questions];
-    if (updated[qIndex].options.length <= 2)
-      return toast.error("Minimum 2 options required.");
-    updated[qIndex].options = updated[qIndex].options.filter(
-      (_, i) => i !== oIndex,
-    );
+    if (updated[qIndex].options.length <= 2) return toast.error("Minimum 2 options required.");
+    updated[qIndex].options = updated[qIndex].options.filter((_, i) => i !== oIndex);
     setQuestions(updated);
   };
 
@@ -57,90 +50,115 @@ const CreatePoll = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!expiresAt) return toast.error("Please set an expiry date.");
+    setIsSubmitting(true);
     try {
-      if (!expiresAt) return toast.error("Please set an expiry date.");
       await axios.post("/polls", {
-        title,
-        description,
-        isAnonymous,
+        title, description, isAnonymous,
         expiresAt: new Date(expiresAt).toISOString(),
         questions,
       });
-      toast.success("Poll created successfully!");
+      toast.success("Poll created!");
       navigate("/dashboard");
     } catch {
       toast.error("Failed to create poll");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="max-w-2xl mx-auto py-12 animate-fade-in">
-      <div className="mb-12 text-center">
-        <h1 className="display-sm mb-3">Create Poll</h1>
-        <p className="text-base text-(--ink-2)">
-          Configure your poll's details and questions.
+    <div className="max-w-2xl mx-auto py-14 animate-fade-in">
+      {/* PAGE TITLE */}
+      <div style={{ marginBottom: "3rem" }}>
+        <h1
+          style={{
+            fontFamily: "var(--font-display)",
+            fontStyle: "italic",
+            fontSize: "clamp(2.25rem, 5vw, 3.5rem)",
+            letterSpacing: "-0.025em",
+            lineHeight: 1,
+            color: "var(--ink)",
+            marginBottom: "0.75rem",
+          }}
+        >
+          Create a Poll
+        </h1>
+        <p style={{ fontSize: "0.9375rem", color: "var(--ink-3)" }}>
+          Configure your poll, add questions, and share instantly.
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Core Details */}
-        <div className="mb-14">
-          <div className="flex items-center text-sm mb-6">
-            <span className="section-label">Details</span>
-          </div>
-
-          <div className="space-y-5">
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-(--ink-3) mb-2">
-                Poll Title
-              </label>
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "0" }}>
+        {/* ── SECTION 1: DETAILS ── */}
+        <FormSection number="01" label="Details">
+          <div style={{ display: "flex", flexDirection: "column", gap: "1.125rem" }}>
+            <Field label="Poll Title" required>
               <input
                 type="text"
                 required
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="w-full px-3 py-2.5 input-ring"
                 placeholder="What feedback do you need?"
+                style={{ width: "100%" }}
               />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-(--ink-3) mb-2">
-                Description (Optional)
-              </label>
+            </Field>
+            <Field label="Description" hint="Optional">
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className="w-full px-3 py-2.5 input-ring resize-none h-24"
-                placeholder="Add context or instructions for your audience..."
-              ></textarea>
-            </div>
+                placeholder="Add context or instructions for your audience…"
+                style={{ width: "100%", resize: "none", height: "88px" }}
+              />
+            </Field>
           </div>
-        </div>
+        </FormSection>
 
-        <hr className="my-10" style={{border:'none', height:'1px', background:'var(--hairline)'}} />
+        <SectionDivider />
 
-        {/* Configuration */}
-        <div className="mb-14">
-          <div className="flex items-center text-sm mb-6">
-            <span className="section-label">Configuration</span>
-          </div>
-          <div className="grid sm:grid-cols-2 gap-8">
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-(--ink-3) mb-2">
-                Expiry Date & Time
-              </label>
+        {/* ── SECTION 2: CONFIGURATION ── */}
+        <FormSection number="02" label="Configuration">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
+            <Field label="Expiry Date & Time" required>
               <input
                 type="datetime-local"
                 required
                 value={expiresAt}
                 onChange={(e) => setExpiresAt(e.target.value)}
-                className="w-full px-3 py-2.5 input-ring text-sm"
+                style={{ width: "100%", fontSize: "0.875rem" }}
               />
-            </div>
-            <div className="flex items-center sm:pt-6">
-              <label className="flex items-center cursor-pointer">
-                <div className="relative">
+            </Field>
+            <div>
+              <p
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: "10px",
+                  letterSpacing: "0.07em",
+                  textTransform: "uppercase",
+                  color: "var(--ink-3)",
+                  marginBottom: "0.625rem",
+                }}
+              >
+                Anonymous Responses
+              </p>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.875rem",
+                  cursor: "pointer",
+                  padding: "0.875rem 1rem",
+                  background: "var(--surface)",
+                  border: "1px solid var(--hairline)",
+                  borderRadius: "6px",
+                  transition: "border-color 0.15s",
+                  userSelect: "none",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--hairline-strong)")}
+                onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--hairline)")}
+              >
+                {/* Toggle */}
+                <div style={{ position: "relative", flexShrink: 0 }}>
                   <input
                     type="checkbox"
                     className="sr-only"
@@ -148,149 +166,370 @@ const CreatePoll = () => {
                     onChange={(e) => setIsAnonymous(e.target.checked)}
                   />
                   <div
-                    className={`block w-10 h-6 rounded-full transition-colors ${isAnonymous ? "bg-(--ink)" : "bg-(--hairline)"}`}
-                  ></div>
-                  <div
-                    className={`absolute left-1 top-1 bg-(--surface) w-4 h-4 rounded-full transition-transform ${isAnonymous ? "transform translate-x-4" : ""}`}
-                  ></div>
-                </div>
-                <div className="ml-3">
-                  <div className="text-sm font-medium text-(--ink)">
-                    Anonymous Submissions
+                    style={{
+                      width: "38px", height: "22px", borderRadius: "99px",
+                      background: isAnonymous ? "var(--ink)" : "var(--hairline-strong)",
+                      transition: "background 0.2s",
+                      position: "relative",
+                    }}
+                  >
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "3px",
+                        left: isAnonymous ? "19px" : "3px",
+                        width: "16px", height: "16px",
+                        borderRadius: "50%",
+                        background: "var(--surface)",
+                        transition: "left 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                      }}
+                    />
                   </div>
-                  <div className="text-xs text-(--ink-2) mt-0.5">
-                    Keep voter identities private
+                </div>
+                <div>
+                  <div style={{ fontSize: "0.875rem", fontWeight: 500, color: "var(--ink)", lineHeight: 1.2 }}>
+                    {isAnonymous ? "Enabled" : "Disabled"}
+                  </div>
+                  <div style={{ fontSize: "0.75rem", color: "var(--ink-3)", marginTop: "2px" }}>
+                    {isAnonymous ? "Voter identities are hidden" : "Voters must be signed in"}
                   </div>
                 </div>
               </label>
             </div>
           </div>
-        </div>
+        </FormSection>
 
-        <hr className="my-10" style={{border:'none', height:'1px', background:'var(--hairline)'}} />
+        <SectionDivider />
 
-        {/* Builder */}
-        <div className="mb-14">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center text-sm">
-              <span className="section-label">Questions</span>
-            </div>
-            <span className="text-xs font-medium text-(--ink-2) bg-(--subtle) px-2.5 py-1 rounded-md">
-              {questions.length} Items
+        {/* ── SECTION 3: QUESTIONS ── */}
+        <FormSection
+          number="03"
+          label="Questions"
+          right={
+            <span
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: "11px",
+                letterSpacing: "0.06em",
+                color: "var(--ink-4)",
+                background: "var(--subtle)",
+                padding: "3px 10px",
+                borderRadius: "99px",
+                border: "1px solid var(--hairline)",
+              }}
+            >
+              {questions.length} {questions.length === 1 ? "item" : "items"}
             </span>
-          </div>
-
-          <div className="space-y-5">
+          }
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
             {questions.map((q, qIndex) => (
-              <div
-                key={qIndex}
-                className="p-5 bg-(--subtle) border border-(--hairline) rounded-lg relative group transition-colors"
-              >
-                <button
-                  type="button"
-                  onClick={() => removeQuestion(qIndex)}
-                  className="absolute top-3 right-3 p-1.5 text-(--ink-3) hover:text-red-500 rounded-md transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-                  aria-label="Remove question"
-                >
-                  <Trash2 size={16} />
-                </button>
-
-                <div className="mb-5 pr-8">
-                  <div className="flex items-center gap-3 mb-3">
-                    <span className="text-xs font-semibold text-(--ink-3) w-5 shrink-0">
-                      Q{qIndex + 1}
-                    </span>
-                    <input
-                      type="text"
-                      required
-                      value={q.text}
-                      onChange={(e) =>
-                        updateQuestion(qIndex, "text", e.target.value)
-                      }
-                      className="w-full bg-transparent border-b border-(--hairline) focus:border-(--ink) outline-none text-sm font-medium pb-1.5 transition-colors px-0 placeholder-zinc-400"
-                      placeholder="Type your question..."
-                    />
-                  </div>
-
-                  <label className="flex items-center ml-8 mt-3 cursor-pointer w-max">
-                    <input
-                      type="checkbox"
-                      checked={q.isOptional}
-                      onChange={(e) =>
-                        updateQuestion(qIndex, "isOptional", e.target.checked)
-                      }
-                      className="rounded border-(--hairline) text-(--ink) focus:ring-(--ink) w-3.5 h-3.5"
-                    />
-                    <span className="text-xs font-medium text-(--ink-2) ml-2">
-                      Make this question optional
-                    </span>
-                  </label>
-                </div>
-
-                <div className="pl-8 space-y-3">
-                  {q.options.map((opt, oIndex) => (
-                    <div
-                      key={oIndex}
-                      className="flex items-center gap-3 group/opt"
+              <div key={qIndex} className="question-card">
+                <div style={{ padding: "1.25rem 1.25rem 1.25rem 1.75rem" }}>
+                  {/* Question text + index */}
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: "0.875rem", marginBottom: "1rem" }}>
+                    <span
+                      style={{
+                        fontFamily: "var(--font-display)",
+                        fontStyle: "italic",
+                        fontSize: "1.5rem",
+                        lineHeight: 1,
+                        color: "var(--ink-4)",
+                        flexShrink: 0,
+                        marginTop: "4px",
+                      }}
                     >
-                      <div className="w-3 h-3 rounded-full border border-(--hairline) shrink-0 ml-1"></div>
+                      {qIndex + 1}.
+                    </span>
+                    <div style={{ flex: 1 }}>
                       <input
                         type="text"
                         required
-                        value={opt.text}
-                        onChange={(e) =>
-                          updateOption(qIndex, oIndex, e.target.value)
-                        }
-                        className="flex-1 px-3 py-2 bg-(--surface) border border-(--hairline) rounded-md focus:outline-none focus:ring-1 focus:ring-(--ink) text-sm transition-all placeholder-zinc-400"
-                        placeholder={`Option ${oIndex + 1}`}
+                        value={q.text}
+                        onChange={(e) => updateQuestion(qIndex, "text", e.target.value)}
+                        placeholder="Type your question…"
+                        style={{
+                          width: "100%",
+                          background: "transparent",
+                          border: "none",
+                          borderBottom: "1px solid var(--hairline)",
+                          borderRadius: "0",
+                          padding: "0 0 8px 0",
+                          fontSize: "0.9375rem",
+                          fontWeight: 500,
+                          color: "var(--ink)",
+                          outline: "none",
+                          boxShadow: "none",
+                          transition: "border-color 0.15s",
+                        }}
+                        onFocus={(e) => (e.target.style.borderColor = "var(--ink)")}
+                        onBlur={(e) => (e.target.style.borderColor = "var(--hairline)")}
                       />
-                      <button
-                        type="button"
-                        onClick={() => removeOption(qIndex, oIndex)}
-                        className="p-1.5 text-(--ink-3) hover:text-red-500 opacity-0 group-hover/opt:opacity-100 focus:opacity-100 transition-colors"
-                      >
-                        <Trash2 size={14} />
-                      </button>
                     </div>
-                  ))}
+                    {/* Remove question */}
+                    <button
+                      type="button"
+                      onClick={() => removeQuestion(qIndex)}
+                      style={{
+                        background: "none", border: "none", cursor: "pointer",
+                        padding: "4px", color: "var(--ink-4)", borderRadius: "4px",
+                        flexShrink: 0, transition: "color 0.15s",
+                        display: "flex", alignItems: "center",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.color = "var(--danger)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.color = "var(--ink-4)")}
+                      aria-label="Remove question"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
 
-                  <button
-                    type="button"
-                    onClick={() => addOption(qIndex)}
-                    className="btn-secondary text-xs px-3 py-1.5 mt-3 inline-flex items-center"
+                  {/* Optional toggle */}
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.5rem",
+                      cursor: "pointer",
+                      marginBottom: "1rem",
+                      paddingLeft: "2.25rem",
+                    }}
                   >
-                    <Plus size={14} className="mr-1.5" /> Add Choice
-                  </button>
+                    <div
+                      style={{
+                        width: "14px", height: "14px", borderRadius: "3px",
+                        border: `1.5px solid ${q.isOptional ? "var(--ink)" : "var(--hairline-strong)"}`,
+                        background: q.isOptional ? "var(--ink)" : "transparent",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        flexShrink: 0, transition: "all 0.15s",
+                      }}
+                    >
+                      {q.isOptional && (
+                        <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                          <path d="M1.5 4L3.5 6L6.5 2" stroke="var(--paper)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </div>
+                    <input
+                      type="checkbox"
+                      className="sr-only"
+                      checked={q.isOptional}
+                      onChange={(e) => updateQuestion(qIndex, "isOptional", e.target.checked)}
+                    />
+                    <span style={{ fontSize: "0.8125rem", color: "var(--ink-3)", fontWeight: 500 }}>
+                      Mark as optional
+                    </span>
+                  </label>
+
+                  {/* OPTIONS */}
+                  <div style={{ paddingLeft: "2.25rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                    {q.options.map((opt, oIndex) => (
+                      <div
+                        key={oIndex}
+                        style={{ display: "flex", alignItems: "center", gap: "0.625rem" }}
+                        className="group/opt"
+                      >
+                        <div
+                          style={{
+                            width: "12px", height: "12px", borderRadius: "50%",
+                            border: "1.5px solid var(--hairline-strong)",
+                            flexShrink: 0,
+                          }}
+                        />
+                        <input
+                          type="text"
+                          required
+                          value={opt.text}
+                          onChange={(e) => updateOption(qIndex, oIndex, e.target.value)}
+                          placeholder={`Option ${oIndex + 1}`}
+                          style={{
+                            flex: 1,
+                            fontSize: "0.875rem",
+                            padding: "0.5rem 0.75rem",
+                            background: "var(--paper)",
+                            border: "1px solid var(--hairline)",
+                            borderRadius: "5px",
+                            transition: "border-color 0.12s",
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeOption(qIndex, oIndex)}
+                          style={{
+                            background: "none", border: "none", cursor: "pointer",
+                            padding: "4px", color: "var(--ink-4)", borderRadius: "3px",
+                            display: "flex", alignItems: "center",
+                            opacity: q.options.length <= 2 ? 0.25 : 1,
+                            pointerEvents: q.options.length <= 2 ? "none" : "auto",
+                            transition: "color 0.15s",
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--danger)")}
+                          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--ink-4)")}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    ))}
+
+                    {/* Add option */}
+                    <button
+                      type="button"
+                      onClick={() => addOption(qIndex)}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: "0.375rem",
+                        background: "none", border: "none", cursor: "pointer",
+                        color: "var(--ink-3)", fontSize: "0.8125rem", fontWeight: 500,
+                        fontFamily: "var(--font-body)", padding: "0.375rem 0",
+                        marginTop: "0.25rem", transition: "color 0.12s",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.color = "var(--ink)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.color = "var(--ink-3)")}
+                    >
+                      <Plus size={13} /> Add choice
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
+
+            {/* Add question */}
+            <button
+              type="button"
+              onClick={addQuestion}
+              style={{
+                width: "100%",
+                padding: "1.25rem",
+                background: "var(--subtle)",
+                border: "1.5px dashed var(--hairline-strong)",
+                borderRadius: "10px",
+                color: "var(--ink-3)",
+                fontSize: "0.875rem",
+                fontWeight: 500,
+                fontFamily: "var(--font-body)",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "0.5rem",
+                transition: "border-color 0.15s, color 0.15s, background 0.15s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = "var(--ink-3)";
+                e.currentTarget.style.color = "var(--ink)";
+                e.currentTarget.style.background = "var(--hairline)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "var(--hairline-strong)";
+                e.currentTarget.style.color = "var(--ink-3)";
+                e.currentTarget.style.background = "var(--subtle)";
+              }}
+            >
+              <Plus size={15} /> Add Question
+            </button>
           </div>
+        </FormSection>
 
-          <button
-            type="button"
-            onClick={addQuestion}
-            className="w-full mt-6 py-5 bg-(--subtle) border border-(--hairline) text-(--ink) text-sm font-medium rounded-lg hover:border-(--hairline-strong) transition-colors flex justify-center items-center gap-2"
-          >
-            <Plus size={16} /> Add Question
-          </button>
-        </div>
-
-        {/* Global Actions */}
-        <div className="flex justify-end pt-6 border-t border-(--hairline)">
-          <button
-            type="button"
-            onClick={() => navigate("/dashboard")}
-            className="btn-ghost mr-3 text-sm"
-          >
+        {/* ACTIONS */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            alignItems: "center",
+            gap: "0.75rem",
+            paddingTop: "2.5rem",
+            borderTop: "1px solid var(--hairline)",
+            marginTop: "2rem",
+          }}
+        >
+          <button type="button" onClick={() => navigate("/dashboard")} className="btn-ghost text-sm px-5">
             Cancel
           </button>
-          <button type="submit" className="btn-primary text-sm px-6">
-            Create Poll
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: "0.375rem",
+              background: "var(--ink)", color: "var(--paper)",
+              border: "1px solid var(--ink)", borderRadius: "6px",
+              padding: "0.5625rem 1.5rem",
+              fontFamily: "var(--font-body)", fontSize: "0.875rem", fontWeight: 600,
+              cursor: isSubmitting ? "not-allowed" : "pointer",
+              opacity: isSubmitting ? 0.65 : 1,
+              transition: "opacity 0.15s",
+              letterSpacing: "0.01em",
+            }}
+            onMouseEnter={(e) => { if (!isSubmitting) e.currentTarget.style.opacity = "0.85"; }}
+            onMouseLeave={(e) => { if (!isSubmitting) e.currentTarget.style.opacity = "1"; }}
+          >
+            {isSubmitting ? "Creating…" : "Create Poll →"}
           </button>
         </div>
       </form>
     </div>
   );
 };
+
+/* ── Small layout helpers ── */
+const SectionDivider = () => (
+  <div style={{ height: "1px", background: "var(--hairline)", margin: "2.5rem 0" }} />
+);
+
+const FormSection = ({ number, label, children, right }) => (
+  <div style={{ marginBottom: "0" }}>
+    <div
+      style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        marginBottom: "1.5rem",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: "0.625rem" }}>
+        <span
+          style={{
+            fontFamily: "var(--font-mono)", fontSize: "10px", fontWeight: 500,
+            letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--ink-4)",
+          }}
+        >
+          {number}
+        </span>
+        <span style={{ width: "1px", height: "12px", background: "var(--hairline-strong)" }} />
+        <span
+          style={{
+            fontFamily: "var(--font-mono)", fontSize: "10px", fontWeight: 500,
+            letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--ink-3)",
+          }}
+        >
+          {label}
+        </span>
+      </div>
+      {right}
+    </div>
+    {children}
+  </div>
+);
+
+const Field = ({ label, hint, required, children }) => (
+  <div>
+    <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", marginBottom: "0.5rem" }}>
+      <label
+        style={{
+          fontFamily: "var(--font-mono)", fontSize: "10px", fontWeight: 500,
+          letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--ink-3)",
+        }}
+      >
+        {label}
+      </label>
+      {required && (
+        <span style={{ color: "var(--danger)", fontSize: "10px", fontFamily: "var(--font-mono)" }}>*</span>
+      )}
+      {hint && (
+        <span style={{ fontSize: "10px", color: "var(--ink-4)", fontFamily: "var(--font-mono)", letterSpacing: "0.05em" }}>
+          — {hint}
+        </span>
+      )}
+    </div>
+    {children}
+  </div>
+);
 
 export default CreatePoll;

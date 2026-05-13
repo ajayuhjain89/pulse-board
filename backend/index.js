@@ -1,5 +1,5 @@
 import cors from "cors";
-import dotenv from "dotenv";
+import "dotenv/config";
 import express from "express";
 import http from "http";
 import mongoose from "mongoose";
@@ -7,8 +7,6 @@ import { Server } from "socket.io";
 import authRoutes from "./routes/authRoutes.js";
 import pollRoutes from "./routes/pollRoutes.js";
 import { setIO } from "./socket.js";
-
-dotenv.config();
 
 const app = express();
 const server = http.createServer(app);

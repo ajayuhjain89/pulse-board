@@ -19,6 +19,7 @@ const PollView = () => {
   const [loading, setLoading] = useState(true);
   const [answers, setAnswers] = useState({});
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     const fetchPoll = async () => {
@@ -41,6 +42,7 @@ const PollView = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setIsSubmitting(true);
     const formattedAnswers = Object.entries(answers).map(
       ([questionId, optionId]) => ({ questionId, optionId }),
     );
@@ -54,87 +56,138 @@ const PollView = () => {
       }
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to submit response");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   if (loading)
     return (
-      <div className="flex justify-center items-center py-20">
-        <Loader2 className="animate-spin text-zinc-400 w-8 h-8" />
+      <div className="flex justify-center items-center py-32">
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "1rem" }}>
+          <Loader2 className="animate-spin w-7 h-7" style={{ color: "var(--ink-4)" }} />
+          <span className="section-label">Loading poll…</span>
+        </div>
       </div>
     );
 
   if (!poll)
     return (
-      <div className="text-center py-20 font-medium text-zinc-500">
-        Poll not found.
+      <div className="text-center py-32">
+        <div style={{ fontFamily: "var(--font-display)", fontStyle: "italic", fontSize: "2.5rem", color: "var(--ink-3)", marginBottom: "1rem" }}>
+          Not found.
+        </div>
+        <p className="text-sm mb-6" style={{ color: "var(--ink-3)" }}>
+          This poll might have been deleted or the link is invalid.
+        </p>
+        <button onClick={() => navigate("/")} className="btn-secondary text-sm">
+          Return Home
+        </button>
       </div>
     );
 
   const requiresAuth = !isExpired && !poll.isAnonymous && !user;
   const isInteractive = !isExpired && !requiresAuth;
+  const answeredCount = Object.keys(answers).length;
+  const totalRequired = poll.questions.filter((q) => !q.isOptional).length;
+  const progress = poll.questions.length > 0 ? (answeredCount / poll.questions.length) * 100 : 0;
 
   if (hasSubmitted) {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-8 animate-slide-up flex flex-col items-center text-center mt-12">
-        <div style={{
-          width:'48px', height:'48px', borderRadius:'50%',
-          background:'var(--subtle)', border:'1px solid var(--hairline)',
-          display:'flex', alignItems:'center', justifyContent:'center',
-          marginBottom:'1.5rem', color:'var(--ink)'
-        }}>
-          <CheckCircle2 size={20} />
+      <div className="max-w-lg mx-auto py-24 animate-fade-in flex flex-col items-center text-center">
+        <div
+          style={{
+            width: "56px", height: "56px", borderRadius: "50%",
+            background: "var(--subtle)", border: "1px solid var(--hairline)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            marginBottom: "1.75rem",
+          }}
+        >
+          <CheckCircle2 size={22} style={{ color: "var(--accent)" }} />
         </div>
-        <h2 className="display-sm mb-2">Response recorded</h2>
-        <p style={{color:'var(--ink-3)', fontSize:'0.9375rem'}}>
+        <h2 className="display-sm mb-3">Response recorded</h2>
+        <p style={{ color: "var(--ink-3)", fontSize: "0.9375rem", maxWidth: "28ch", lineHeight: 1.6 }}>
           Thanks for participating. The creator will review these shortly.
         </p>
-        <button onClick={() => navigate("/")} className="btn-secondary mt-8">Return Home</button>
+        <button onClick={() => navigate("/")} className="btn-secondary mt-8 text-sm px-6">
+          Return Home
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="max-w-2xl mx-auto pt-10 pb-12 animate-fade-in">
-      {/* Poll header */}
-      <div className="mb-10 text-center">
-        <h1 className="display-sm mb-4">{poll.title}</h1>
+    <div className="max-w-2xl mx-auto pt-10 pb-16 animate-fade-in">
+      {/* POLL HEADER */}
+      <div className="mb-8 text-center">
+        <h1
+          style={{
+            fontFamily: "var(--font-display)",
+            fontStyle: "italic",
+            fontSize: "clamp(2rem, 5vw, 3.5rem)",
+            lineHeight: 1.05,
+            letterSpacing: "-0.02em",
+            color: "var(--ink)",
+            marginBottom: "1rem",
+          }}
+        >
+          {poll.title}
+        </h1>
         {poll.description && (
-          <p className="text-base text-(--ink-2) leading-relaxed max-w-lg mx-auto">
+          <p style={{ fontSize: "1rem", color: "var(--ink-2)", lineHeight: 1.65, maxWidth: "42ch", margin: "0 auto" }}>
             {poll.description}
           </p>
         )}
       </div>
 
-      {/* Meta row */}
-      <div className="flex items-center justify-center gap-5 mb-12">
-        <span className="mono-label">{poll.questions.length} question{poll.questions.length !== 1 ? 's' : ''}</span>
-        <span style={{color:'var(--hairline-strong)'}}>·</span>
-        <span className="mono-label">{poll.isAnonymous ? 'Anonymous' : 'Authenticated'}</span>
-        <span style={{color:'var(--hairline-strong)'}}>·</span>
-        <span className="mono-label">Closes {new Date(poll.expiresAt).toLocaleDateString('en-US', {month:'short', day:'numeric'})}</span>
+      {/* META ROW */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "1.25rem",
+          marginBottom: "2.5rem",
+          flexWrap: "wrap",
+        }}
+      >
+        <span className="mono-label">{poll.questions.length} question{poll.questions.length !== 1 ? "s" : ""}</span>
+        <span style={{ color: "var(--hairline-strong)" }}>·</span>
+        <span className="mono-label">{poll.isAnonymous ? "Anonymous" : "Authenticated"}</span>
+        <span style={{ color: "var(--hairline-strong)" }}>·</span>
+        <span className="mono-label">
+          Closes {new Date(poll.expiresAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+        </span>
       </div>
 
-      {/* Progress bar (multi-question polls) */}
-      {poll.questions.length > 1 && (
-        <div style={{height:'2px', background:'var(--subtle)', marginBottom:'2.5rem', borderRadius:'99px'}}>
-          <div style={{
-            height:'100%',
-            borderRadius:'99px',
-            background:'var(--accent)',
-            width:`${(Object.keys(answers).length / poll.questions.length) * 100}%`,
-            transition:'width 0.4s ease'
-          }} />
+      {/* PROGRESS BAR (multi-question) */}
+      {poll.questions.length > 1 && isInteractive && (
+        <div style={{ marginBottom: "2.5rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+            <span className="section-label">{answeredCount} of {poll.questions.length} answered</span>
+            <span className="section-label">{Math.round(progress)}%</span>
+          </div>
+          <div style={{ height: "3px", background: "var(--subtle)", borderRadius: "99px", overflow: "hidden" }}>
+            <div
+              style={{
+                height: "100%",
+                borderRadius: "99px",
+                background: "var(--accent)",
+                width: `${progress}%`,
+                transition: "width 0.4s cubic-bezier(0.25, 1, 0.5, 1)",
+              }}
+            />
+          </div>
         </div>
       )}
 
-      {/* Status banners */}
+      {/* STATUS BANNERS */}
       {isExpired && !poll.isPublished && (
-        <div className="polished-panel p-5 mb-8 flex gap-3">
-          <Clock className="w-5 h-5 text-zinc-500 shrink-0 mt-0.5" />
+        <div className="polished-panel p-5 mb-8 flex gap-3" style={{ borderLeft: "3px solid var(--ink-4)" }}>
+          <Clock className="w-5 h-5 shrink-0 mt-0.5" style={{ color: "var(--ink-4)" }} />
           <div>
-            <h3 className="text-sm font-semibold text-(--ink)">Poll Ended</h3>
-            <p className="text-sm text-(--ink-2) mt-1">
+            <h3 style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--ink)", marginBottom: "0.25rem" }}>Poll Ended</h3>
+            <p style={{ fontSize: "0.875rem", color: "var(--ink-2)" }}>
               This poll is no longer accepting responses.
             </p>
           </div>
@@ -142,103 +195,149 @@ const PollView = () => {
       )}
 
       {isExpired && poll.isPublished && (
-        <div className="polished-panel p-5 mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="polished-panel p-5 mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4" style={{ borderLeft: "3px solid var(--success)" }}>
           <div className="flex gap-3">
-            <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
+            <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5" style={{ color: "var(--success)" }} />
             <div>
-              <h3 className="text-sm font-semibold text-(--ink)">Poll Completed</h3>
-              <p className="text-sm text-(--ink-2) mt-1">Results have been published.</p>
+              <h3 style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--ink)", marginBottom: "0.25rem" }}>Poll Completed</h3>
+              <p style={{ fontSize: "0.875rem", color: "var(--ink-2)" }}>Results have been published.</p>
             </div>
           </div>
-          <button
-            onClick={() => navigate(`/polls/${id}/results`)}
-            className="btn-secondary text-sm"
-          >
+          <button onClick={() => navigate(`/polls/${id}/results`)} className="btn-secondary text-sm">
             View Results
           </button>
         </div>
       )}
 
       {requiresAuth && (
-        <div className="polished-panel p-5 mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="polished-panel p-5 mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4" style={{ borderLeft: "3px solid var(--accent)" }}>
           <div className="flex gap-3">
-            <Lock className="w-5 h-5 text-zinc-500 shrink-0 mt-0.5" />
+            <Lock className="w-5 h-5 shrink-0 mt-0.5" style={{ color: "var(--accent)" }} />
             <div>
-              <h3 className="text-sm font-semibold text-(--ink)">Authentication Required</h3>
-              <p className="text-sm text-(--ink-2) mt-1">Please sign in to participate.</p>
+              <h3 style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--ink)", marginBottom: "0.25rem" }}>Authentication Required</h3>
+              <p style={{ fontSize: "0.875rem", color: "var(--ink-2)" }}>Please sign in to participate in this poll.</p>
             </div>
           </div>
-          <button
-            onClick={() => navigate("/login")}
-            className="btn-primary text-sm"
-          >
+          <button onClick={() => navigate("/login")} className="btn-primary text-sm">
             Sign In
           </button>
         </div>
       )}
 
-      {/* Questions */}
-      <form onSubmit={handleSubmit} className="space-y-8">
+      {/* QUESTIONS */}
+      <form onSubmit={handleSubmit} className="space-y-5">
         {poll.questions.map((q, i) => (
           <div
             key={q._id}
-            className={`polished-panel p-6 sm:p-8 ${!isInteractive ? "opacity-60 grayscale" : ""}`}
+            className="polished-panel"
+            style={{
+              padding: "1.75rem 2rem",
+              opacity: !isInteractive ? 0.55 : 1,
+              filter: !isInteractive ? "grayscale(0.4)" : "none",
+              transition: "opacity 0.2s, filter 0.2s",
+            }}
           >
             {/* Question header */}
-            <div className="mb-6">
-              <span className="block mb-2" style={{
-                fontFamily: 'var(--font-display)',
-                fontStyle: 'italic',
-                fontSize: '2.5rem',
-                lineHeight: 1,
-                color: 'var(--ink-3)'
-              }}>
-                {i + 1}.
-              </span>
-              <h3 className="font-medium text-base leading-snug" style={{color:'var(--ink)'}}>
-                {q.text}
-                {!q.isOptional && (
-                  <span style={{
-                    fontFamily:'var(--font-mono)',
-                    fontSize:'9px',
-                    letterSpacing:'0.08em',
-                    textTransform:'uppercase',
-                    color:'var(--danger)',
-                    opacity:0.7,
-                    marginLeft:'8px',
-                    verticalAlign:'middle'
-                  }}>
-                    req
-                  </span>
-                )}
-              </h3>
+            <div style={{ marginBottom: "1.5rem" }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: "0.875rem" }}>
+                <span
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontStyle: "italic",
+                    fontSize: "2rem",
+                    lineHeight: 1,
+                    color: "var(--ink-4)",
+                    flexShrink: 0,
+                    marginTop: "2px",
+                  }}
+                >
+                  {i + 1}.
+                </span>
+                <div>
+                  <h3
+                    style={{
+                      fontSize: "0.9375rem",
+                      fontWeight: 600,
+                      letterSpacing: "-0.01em",
+                      color: "var(--ink)",
+                      lineHeight: 1.4,
+                      margin: 0,
+                    }}
+                  >
+                    {q.text}
+                  </h3>
+                  {!q.isOptional ? (
+                    <span
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        fontSize: "9px",
+                        letterSpacing: "0.1em",
+                        textTransform: "uppercase",
+                        color: "var(--danger)",
+                        opacity: 0.8,
+                        display: "inline-block",
+                        marginTop: "4px",
+                      }}
+                    >
+                      Required
+                    </span>
+                  ) : (
+                    <span
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        fontSize: "9px",
+                        letterSpacing: "0.1em",
+                        textTransform: "uppercase",
+                        color: "var(--ink-4)",
+                        display: "inline-block",
+                        marginTop: "4px",
+                      }}
+                    >
+                      Optional
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
 
-            {/* Options — FIX: gap-3 between dot and label */}
-            <div className="space-y-3">
+            {/* OPTIONS */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.625rem" }}>
               {q.options.map((opt) => {
                 const isSelected = answers[q._id] === opt._id;
                 return (
                   <label
                     key={opt._id}
-                    className={`poll-option flex items-center justify-between ${isSelected ? "poll-option--selected" : ""}`}
+                    className={`poll-option ${isSelected ? "poll-option--selected" : ""}`}
+                    style={{ cursor: !isInteractive ? "not-allowed" : "pointer" }}
                   >
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="radio"
-                        name={q._id}
-                        value={opt._id}
-                        required={!q.isOptional}
-                        disabled={!isInteractive}
-                        checked={isSelected}
-                        onChange={() => handleOptionChange(q._id, opt._id)}
-                        className="sr-only peer"
-                      />
-                      <div className="poll-option__dot shrink-0"></div>
-                      <span className={`text-sm font-medium ${isSelected ? "text-(--ink)" : "text-(--ink-2)"}`}>
-                        {opt.text}
-                      </span>
-                    </div>
+                    <input
+                      type="radio"
+                      name={q._id}
+                      value={opt._id}
+                      required={!q.isOptional}
+                      disabled={!isInteractive}
+                      checked={isSelected}
+                      onChange={() => handleOptionChange(q._id, opt._id)}
+                      className="sr-only"
+                    />
+                    <div className="poll-option__dot shrink-0" />
+                    <span
+                      style={{
+                        fontSize: "0.9rem",
+                        fontWeight: isSelected ? 600 : 500,
+                        color: isSelected ? "var(--ink)" : "var(--ink-2)",
+                        letterSpacing: "-0.005em",
+                        transition: "color 0.15s, font-weight 0.1s",
+                        flex: 1,
+                      }}
+                    >
+                      {opt.text}
+                    </span>
+                    {isSelected && (
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
+                        <path d="M2.5 7L5.5 10L11.5 4" stroke="var(--ink)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
                   </label>
                 );
               })}
@@ -246,11 +345,50 @@ const PollView = () => {
           </div>
         ))}
 
+        {/* SUBMIT */}
         {isInteractive && (
-          <div className="flex justify-center mt-10 mb-6">
-            <button type="submit" className="btn-primary px-12 py-3 text-base">
-              Submit Answers →
+          <div style={{ paddingTop: "1.5rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.75rem" }}>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "0.5rem",
+                background: "var(--ink)",
+                color: "var(--paper)",
+                border: "1px solid var(--ink)",
+                borderRadius: "7px",
+                padding: "0.875rem 3rem",
+                fontFamily: "var(--font-body)",
+                fontSize: "0.9375rem",
+                fontWeight: 600,
+                letterSpacing: "0.01em",
+                cursor: isSubmitting ? "not-allowed" : "pointer",
+                opacity: isSubmitting ? 0.6 : 1,
+                transition: "opacity 0.15s, transform 0.1s",
+                minWidth: "200px",
+              }}
+              onMouseEnter={(e) => { if (!isSubmitting) e.currentTarget.style.opacity = "0.85"; }}
+              onMouseLeave={(e) => { if (!isSubmitting) e.currentTarget.style.opacity = "1"; }}
+              onMouseDown={(e) => { e.currentTarget.style.transform = "scale(0.978)"; }}
+              onMouseUp={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Submitting…
+                </>
+              ) : (
+                <>Submit Answers →</>
+              )}
             </button>
+            {totalRequired > 0 && answeredCount < totalRequired && (
+              <p className="section-label" style={{ color: "var(--ink-4)" }}>
+                {totalRequired - answeredCount} required question{totalRequired - answeredCount !== 1 ? "s" : ""} remaining
+              </p>
+            )}
           </div>
         )}
       </form>

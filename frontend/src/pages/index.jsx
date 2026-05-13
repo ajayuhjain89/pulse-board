@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import CreatePoll from "./CreatePoll";
 import Dashboard from "./Dashboard";
+import ForgotPassword from "./ForgotPassword";
 import Home from "./Home";
 import Login from "./Login";
 import PollResults from "./PollResults";
@@ -21,6 +22,7 @@ const Pages = () => {
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route
           path="/dashboard"
           element={

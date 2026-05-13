@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import express from "express";
 import { OAuth2Client } from "google-auth-library";
 import jwt from "jsonwebtoken";
+import nodemailer from "nodemailer";
 import User from "../models/User.js";
 
 const router = express.Router();
@@ -13,30 +14,65 @@ const generateToken = (id) => {
   });
 };
 
+const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || "smtp.ethereal.email",
+  port: process.env.SMTP_PORT || 587,
+  auth: {
+    user: process.env.SMTP_USER || "fake_user",
+    pass: process.env.SMTP_PASS || "fake_pass"
+  }
+});
+
+const sendOTP = async (email, otp) => {
+  console.log(`👉 [DEV] OTP for ${email} is: ${otp}`);
+  try {
+    if (process.env.SMTP_HOST) {
+      await transporter.sendMail({
+        from: process.env.EMAIL_FROM || '"PulseBoard Auth" <noreply@pulseboard.com>',
+        to: email,
+        subject: "Your Authentication Code",
+        text: `Your one-time password is: ${otp}\nIt will expire in 10 minutes.`,
+      });
+    }
+  } catch (error) {
+    console.error("Email sending failed:", error.message);
+  }
+};
+
 router.post("/register", async (req, res) => {
   try {
     const { name, email, password } = req.body;
-    const userExists = await User.findOne({ email });
+    let user = await User.findOne({ email });
 
-    if (userExists) {
-      return res.status(400).json({ message: "User already exists" });
+    if (user) {
+      if (user.isVerified) {
+        return res.status(400).json({ message: "User already exists" });
+      }
+      // Update unverified user
+      user.name = name;
+      const salt = await bcrypt.genSalt(10);
+      user.password = await bcrypt.hash(password, salt);
+    } else {
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(password, salt);
+      user = await User.create({
+        name,
+        email,
+        password: hashedPassword,
+        isVerified: false
+      });
     }
 
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    const otp = generateOTP();
+    user.otp = otp;
+    user.otpExpiry = new Date(Date.now() + 10 * 60000); // 10 mins
+    await user.save();
 
-    const user = await User.create({
-      name,
-      email,
-      password: hashedPassword,
-    });
+    await sendOTP(user.email, otp);
 
-    res.status(201).json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      token: generateToken(user._id),
-    });
+    res.status(201).json({ message: "OTP sent to email", requiresOTP: true, email: user.email });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -48,6 +84,10 @@ router.post("/login", async (req, res) => {
     const user = await User.findOne({ email });
 
     if (user && (await bcrypt.compare(password, user.password))) {
+      if (!user.isVerified && !user.googleId) {
+        // Only require verify if it's a native user not verified
+        return res.status(401).json({ message: "Please verify your email via registration first" });
+      }
       res.json({
         _id: user._id,
         name: user.name,
@@ -57,6 +97,74 @@ router.post("/login", async (req, res) => {
     } else {
       res.status(401).json({ message: "Invalid email or password" });
     }
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.post("/verify-otp", async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    const user = await User.findOne({ email, otp });
+
+    if (!user || user.otpExpiry < new Date()) {
+      return res.status(401).json({ message: "Invalid or expired OTP" });
+    }
+
+    user.otp = undefined;
+    user.otpExpiry = undefined;
+    user.isVerified = true;
+    await user.save();
+
+    res.json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      token: generateToken(user._id),
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const otp = generateOTP();
+    user.otp = otp;
+    user.otpExpiry = new Date(Date.now() + 10 * 60000);
+    await user.save();
+
+    await sendOTP(user.email, otp);
+    
+    res.json({ message: "OTP sent for password reset" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.post("/reset-password", async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+    const user = await User.findOne({ email, otp });
+
+    if (!user || user.otpExpiry < new Date()) {
+      return res.status(401).json({ message: "Invalid or expired OTP" });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(newPassword, salt);
+    user.otp = undefined;
+    user.otpExpiry = undefined;
+    await user.save();
+
+    res.json({ message: "Password reset correctly" });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
