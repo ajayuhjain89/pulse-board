@@ -1,6 +1,6 @@
 import { GoogleOAuthProvider } from "@react-oauth/google";
+import { CheckCircle, Loader2, XCircle } from "lucide-react";
 import { Toaster } from "react-hot-toast";
-import { CheckCircle, XCircle, Loader2 } from "lucide-react";
 import { BrowserRouter } from "react-router-dom";
 import Navbar from "./components/Navbar";
 import { AuthProvider } from "./context/AuthContext";

@@ -64,11 +64,23 @@ const PollView = () => {
 
   if (loading)
     return (
-      <div className="flex justify-center items-center py-32">
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "1rem" }}>
-          <Loader2 className="animate-spin w-7 h-7" style={{ color: "var(--ink-4)" }} />
-          <span className="section-label">Loading poll…</span>
+      <div className="max-w-2xl mx-auto py-12">
+        <div className="skeleton-card" style={{ marginBottom: '1.25rem' }}>
+          <div className="skeleton-line" style={{ height: 28, width: '60%' }} />
+          <div className="skeleton-line short" style={{ height: 12, width: '45%', marginTop: 8 }} />
+          <div style={{ height: 12, marginTop: 14, width: '80%' }} className="skeleton-line" />
         </div>
+
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="skeleton-card" style={{ marginBottom: '1rem' }}>
+            <div className="skeleton-line short" style={{ height: 14, width: '20%' }} />
+            <div className="skeleton-line" style={{ height: 14, width: '70%', marginTop: 10 }} />
+            <div style={{ display: 'flex', gap: 12, marginTop: 14 }}>
+              <div className="skeleton-line" style={{ height: 10, width: 120 }} />
+              <div className="skeleton-line short" style={{ height: 10, width: 60 }} />
+            </div>
+          </div>
+        ))}
       </div>
     );
 
