@@ -3,6 +3,13 @@ import toast from "react-hot-toast";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
+const getErrorMessage = (error, fallbackMessage) => {
+  const responseMessage = error?.response?.data?.message;
+  if (responseMessage) return responseMessage;
+  if (error?.message) return error.message;
+  return fallbackMessage;
+};
+
 const ForgotPassword = () => {
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
@@ -23,7 +30,7 @@ const ForgotPassword = () => {
       toast.success("OTP sent to your email");
       setStep(2);
     } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to send reset email");
+      toast.error(getErrorMessage(error, "Failed to send reset email"));
     } finally {
       setIsLoading(false);
     }
@@ -39,7 +46,7 @@ const ForgotPassword = () => {
       toast.success("Password reset successfully. Please login.");
       navigate("/login");
     } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to reset password");
+      toast.error(getErrorMessage(error, "Failed to reset password"));
     } finally {
       setIsLoading(false);
     }
