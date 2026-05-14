@@ -16,37 +16,61 @@ const generateToken = (id) => {
 
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || "smtp.ethereal.email",
-  port: process.env.SMTP_PORT || 587,
-  auth: {
-    user: process.env.SMTP_USER || "fake_user",
-    pass: process.env.SMTP_PASS || "fake_pass"
-  }
-});
+const getTransporter = () => {
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST || "smtp.ethereal.email",
+    port: process.env.SMTP_PORT || 587,
+    auth: {
+      user: process.env.SMTP_USER || "fake_user",
+      pass: process.env.SMTP_PASS || "fake_pass"
+    }
+  });
+};
 
 const sendOTP = async (email, otp) => {
-  console.log(`👉 [DEV] OTP for ${email} is: ${otp}`);
+  console.log(`👉 [DEV] Attempting to send OTP: ${otp} to ${email}`);
   try {
-    if (process.env.SMTP_HOST) {
-      await transporter.sendMail({
-        from: process.env.EMAIL_FROM || '"PulseBoard Auth" <noreply@pulseboard.com>',
+    if (process.env.SMTP_HOST && process.env.SMTP_HOST !== "smtp.ethereal.email") {
+      const transporter = getTransporter();
+      
+      // wrap in a timeout so it doesn't hang forever
+      const sendPromise = transporter.sendMail({
+        from: process.env.EMAIL_FROM || '"PulseBoard <noreply@pulseboard.com>',
         to: email,
-        subject: "Your Authentication Code",
-        text: `Your one-time password is: ${otp}\nIt will expire in 10 minutes.`,
+        subject: "Your PulseBoard Authentication Code",
+        text: `Your one-time password is: ${otp}\nIt will expire in 10 minutes.\n\nWelcome to PulseBoard!`
       });
+
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("SendGrid connection timeout")), 8000)
+      );
+
+      const info = await Promise.race([sendPromise, timeoutPromise]);
+      console.log(`✅ [DEV] OTP email sent successfully to ${email}. Message ID: ${info.messageId}`);
+    } else {
+      console.log("⚠️ [DEV] SMTP_HOST not configured or is ethereal. Skipping actual email send.");
     }
   } catch (error) {
-    console.error("Email sending failed:", error.message);
+    console.error("❌ [DEV] Email sending failed:", error.message);
+    throw new Error("Failed to send OTP email: " + error.message);
   }
 };
 
 router.post("/register", async (req, res) => {
+  console.log(`\n[REGISTRATION] Received request for: ${req.body?.email}`);
   try {
     const { name, email, password } = req.body;
+    
+    if (!name || !email || !password) {
+      console.log(`[REGISTRATION] Missing fields`);
+      return res.status(400).json({ message: "All fields are required" });
+    }
+
+    console.log(`[REGISTRATION] Checking if user ${email} exists...`);
     let user = await User.findOne({ email });
 
     if (user) {
+      console.log(`[REGISTRATION] User exists (verified: ${user.isVerified})`);
       if (user.isVerified) {
         return res.status(400).json({ message: "User already exists" });
       }
@@ -55,6 +79,7 @@ router.post("/register", async (req, res) => {
       const salt = await bcrypt.genSalt(10);
       user.password = await bcrypt.hash(password, salt);
     } else {
+      console.log(`[REGISTRATION] Creating new user record...`);
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(password, salt);
       user = await User.create({
@@ -65,16 +90,25 @@ router.post("/register", async (req, res) => {
       });
     }
 
+    console.log(`[REGISTRATION] Generating OTP...`);
     const otp = generateOTP();
     user.otp = otp;
     user.otpExpiry = new Date(Date.now() + 10 * 60000); // 10 mins
     await user.save();
 
-    await sendOTP(user.email, otp);
+    console.log(`[REGISTRATION] Attempting to send OTP email via SendGrid...`);
+    try {
+      await sendOTP(user.email, otp);
+    } catch (emailError) {
+      console.error(`[REGISTRATION] Failed to send email: ${emailError.message}`);
+      return res.status(500).json({ message: "Failed to send OTP verification email. Please try again later." });
+    }
 
-    res.status(201).json({ message: "OTP sent to email", requiresOTP: true, email: user.email });
+    console.log(`[REGISTRATION] Success. Requesting frontend verification.`);
+    return res.status(201).json({ message: "OTP sent to email", requiresOTP: true, email: user.email });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error(`[REGISTRATION] Fatal Server Error:`, error);
+    return res.status(500).json({ message: "Internal Server Error during registration" });
   }
 });
 

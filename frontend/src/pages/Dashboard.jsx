@@ -25,6 +25,15 @@ const Dashboard = () => {
     fetchPolls();
   }, []);
 
+  useEffect(() => {
+    if (pollToDelete) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => { document.body.style.overflow = ""; };
+  }, [pollToDelete]);
+
   const copyLink = (pollId) => {
     navigator.clipboard.writeText(`${window.location.origin}/polls/${pollId}`);
     toast.success("Link copied to clipboard");
