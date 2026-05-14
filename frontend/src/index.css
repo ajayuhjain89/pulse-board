@@ -26,6 +26,14 @@
     --toast-bg: #ffffff;
     --toast-color: #0f0f0f;
     --toast-border: #e2deda;
+    /* Spacing scale and radii for consistent rhythm */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --radius: 10px;
+    --radius-sm: 6px;
 }
 
 .dark {
@@ -239,7 +247,7 @@ select:disabled { opacity: 0.45; cursor: not-allowed; background: var(--subtle);
 .polished-panel {
     background: var(--surface);
     border: 1px solid var(--hairline);
-    border-radius: 10px;
+    border-radius: var(--radius);
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .polished-panel:hover {
@@ -253,7 +261,7 @@ select:disabled { opacity: 0.45; cursor: not-allowed; background: var(--subtle);
     gap: 12px;
     padding: 1rem 1.125rem;
     border: 1.5px solid var(--hairline);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
     transition: border-color 0.18s, background 0.18s, transform 0.12s;
     position: relative;
@@ -341,7 +349,7 @@ select:disabled { opacity: 0.45; cursor: not-allowed; background: var(--subtle);
 .analytics-panel-header {
     background: var(--surface);
     border: 1px solid var(--hairline);
-    border-radius: 10px;
+    border-radius: var(--radius);
     padding: 1.75rem 2rem;
 }
 .analytics-panel-header:hover {
@@ -352,7 +360,7 @@ select:disabled { opacity: 0.45; cursor: not-allowed; background: var(--subtle);
 .poll-card {
     background: var(--surface);
     border: 1px solid var(--hairline);
-    border-radius: 10px;
+    border-radius: var(--radius);
     display: flex;
     flex-direction: column;
     transition: border-color 0.16s ease, transform 0.12s ease, box-shadow 0.18s ease;
@@ -407,10 +415,10 @@ select:disabled { opacity: 0.45; cursor: not-allowed; background: var(--subtle);
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 5rem 2rem;
+    padding: var(--space-5) 2rem;
     text-align: center;
     border: 1.5px dashed var(--hairline);
-    border-radius: 10px;
+    border-radius: var(--radius);
 }
 
 /* NAV LINKS */
@@ -569,7 +577,7 @@ select:disabled { opacity: 0.45; cursor: not-allowed; background: var(--subtle);
 .question-card {
     background: var(--surface);
     border: 1px solid var(--hairline);
-    border-radius: 10px;
+    border-radius: var(--radius);
     transition: border-color 0.15s, box-shadow 0.15s;
     position: relative;
     overflow: hidden;
@@ -634,8 +642,8 @@ select:disabled { opacity: 0.45; cursor: not-allowed; background: var(--subtle);
 .auth-form-card {
     background: var(--surface);
     border: 1px solid var(--hairline);
-    border-radius: 10px;
-    padding: 1.75rem;
+    border-radius: var(--radius);
+    padding: var(--space-4);
     display: flex;
     flex-direction: column;
     gap: 1rem;
@@ -658,9 +666,9 @@ select:disabled { opacity: 0.45; cursor: not-allowed; background: var(--subtle);
     gap: 0.625rem;
     width: 100%;
     padding: 0.625rem 1rem;
-    background: var(--subtle);
-    border: 1px solid var(--hairline);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
     font-family: var(--font-body);
     font-size: 0.875rem;
     font-weight: 500;
@@ -779,8 +787,8 @@ input[type="checkbox"]:focus-visible {
 .skeleton-card {
     background: var(--surface);
     border: 1px solid var(--hairline);
-    border-radius: 10px;
-    padding: 1rem;
+    border-radius: var(--radius);
+    padding: var(--space-3);
     min-height: 140px;
     display: flex;
     flex-direction: column;
@@ -788,7 +796,7 @@ input[type="checkbox"]:focus-visible {
 }
 .skeleton-line {
     height: 12px;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     width: 100%;
     background: rgba(0,0,0,0.04);
 }
