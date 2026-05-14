@@ -15,9 +15,13 @@ if (initialUser?.token) {
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(initialUser);
-  // eslint-disable-next-line no-unused-vars
-  const [loading, setLoading] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
   const interceptorRef = useRef(null);
+
+  // Mark auth as ready once component is mounted and token is restored
+  useEffect(() => {
+    setAuthReady(true);
+  }, []);
 
   // Set up global 401 interceptor once
   useEffect(() => {
@@ -105,7 +109,7 @@ export const AuthProvider = ({ children }) => {
     <AuthContext.Provider
       value={{
         user,
-        loading,
+        authReady,
         login,
         verifyOtp,
         forgotPassword,

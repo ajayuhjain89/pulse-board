@@ -2,6 +2,7 @@ import { useGoogleLogin } from "@react-oauth/google";
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { Link, useNavigate } from "react-router-dom";
+import OTPInput from "../components/OTPInput";
 import { useAuth } from "../context/AuthContext";
 
 const Register = () => {
@@ -37,6 +38,7 @@ const Register = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isLoading) return;
     setIsLoading(true);
     try {
       if (showOtp) {
@@ -67,11 +69,11 @@ const Register = () => {
         <h1 className="auth-headline">Create your<br />account.</h1>
         <p className="auth-subtitle">{showOtp ? "Enter the code sent to your email to verify." : "Start capturing context immediately."}</p>
 
-        <div className="auth-form-card">
+        <form className="auth-form-card" onSubmit={handleSubmit}>
           {!showOtp ? (
             <>
               {/* Google */}
-              <button onClick={() => handleGoogleLogin()} className="btn-google">
+              <button onClick={() => handleGoogleLogin()} className="btn-google" type="button">
                 <GoogleIcon />
                 Continue with Google
               </button>
@@ -156,21 +158,13 @@ const Register = () => {
               <label style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: "10px", letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--ink-3)", marginBottom: "0.5rem" }}>
                 Authentication Code
               </label>
-              <input
-                type="text"
-                placeholder="123456"
-                value={otp}
-                onChange={(e) => setOtp(e.target.value)}
-                style={{ width: "100%", letterSpacing: "0.2em", textAlign: "center", fontSize: "1.25rem" }}
-                autoComplete="one-time-code"
-                maxLength={6}
-              />
+              <OTPInput length={6} value={otp} onChange={setOtp} autoFocus={true} name="register-otp" />
             </div>
           )}
 
           {/* Submit */}
           <button
-            onClick={handleSubmit}
+            type="submit"
             disabled={isLoading}
             className="btn-white"
             style={{
@@ -189,7 +183,7 @@ const Register = () => {
               By signing up you agree to our Terms of Service.
             </p>
           )}
-        </div>
+        </form>
 
         <p style={{ textAlign: "center", fontSize: "0.875rem", color: "var(--ink-3)", marginTop: "1.25rem" }}>
           Already have an account?{" "}

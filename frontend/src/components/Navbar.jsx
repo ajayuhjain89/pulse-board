@@ -21,6 +21,13 @@ const Navbar = () => {
   useEffect(() => {
     if (showLogoutModal) {
       document.body.style.overflow = "hidden";
+      const handleEscape = (e) => {
+        if (e.key === "Escape") {
+          setShowLogoutModal(false);
+        }
+      };
+      window.addEventListener("keydown", handleEscape);
+      return () => window.removeEventListener("keydown", handleEscape);
     } else {
       document.body.style.overflow = "";
     }

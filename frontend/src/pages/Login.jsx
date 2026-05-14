@@ -34,6 +34,7 @@ const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isLoading) return;
     setIsLoading(true);
     try {
       await login(email, password);
@@ -52,9 +53,9 @@ const Login = () => {
         <h1 className="auth-headline">Welcome<br />back.</h1>
         <p className="auth-subtitle">Sign in to your PulseBoard account.</p>
 
-        <div className="auth-form-card">
+        <form className="auth-form-card" onSubmit={handleSubmit}>
           {/* Google */}
-          <button onClick={() => handleGoogleLogin()} className="btn-google">
+          <button onClick={() => handleGoogleLogin()} className="btn-google" type="button">
             <GoogleIcon />
             Continue with Google
           </button>
@@ -109,7 +110,7 @@ const Login = () => {
 
           {/* Submit */}
           <button
-            onClick={handleSubmit}
+            type="submit"
             disabled={isLoading}
             className="btn-white"
             style={{
@@ -122,7 +123,7 @@ const Login = () => {
           >
             {isLoading ? "Signing in…" : "Sign In"}
           </button>
-        </div>
+        </form>
 
         <p style={{ textAlign: "center", fontSize: "0.875rem", color: "var(--ink-3)", marginTop: "1.25rem" }}>
           Don't have an account?{" "}

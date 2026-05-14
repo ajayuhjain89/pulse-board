@@ -3,36 +3,55 @@ import { AlertCircle, BarChart2, Link as LinkIcon, Loader2, Plus, Trash2 } from 
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { authReady } = useAuth();
   const [polls, setPolls] = useState([]);
   const [loading, setLoading] = useState(true);
   const [pollToDelete, setPollToDelete] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
+    // Don't fetch until auth is ready
+    if (!authReady) return;
+
     const fetchPolls = async () => {
       try {
         const { data } = await axios.get("/polls");
         setPolls(data);
-      } catch {
-        toast.error("Failed to load your polls");
+      } catch (error) {
+        // Only show error if it's not a 401 (401 is handled by interceptor)
+        if (error.response?.status !== 401) {
+          toast.error("Failed to load your polls");
+        }
       } finally {
         setLoading(false);
       }
     };
+    
     fetchPolls();
-  }, []);
+  }, [authReady]);
 
   useEffect(() => {
     if (pollToDelete) {
       document.body.style.overflow = "hidden";
+      const handleKeyDown = (e) => {
+        if (e.key === "Escape") {
+          setPollToDelete(null);
+        }
+        if (e.key === "Enter" && !isDeleting) {
+          deletePoll();
+        }
+      };
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
     } else {
       document.body.style.overflow = "";
     }
     return () => { document.body.style.overflow = ""; };
-  }, [pollToDelete]);
+  }, [pollToDelete, isDeleting]);
 
   const copyLink = (pollId) => {
     navigator.clipboard.writeText(`${window.location.origin}/polls/${pollId}`);
@@ -40,7 +59,7 @@ const Dashboard = () => {
   };
 
   const deletePoll = async () => {
-    if (!pollToDelete) return;
+    if (!pollToDelete || isDeleting) return;
     setIsDeleting(true);
     try {
       await axios.delete(`/polls/${pollToDelete}`);

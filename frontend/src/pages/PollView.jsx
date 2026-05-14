@@ -42,6 +42,7 @@ const PollView = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setIsSubmitting(true);
     const formattedAnswers = Object.entries(answers).map(
       ([questionId, optionId]) => ({ questionId, optionId }),

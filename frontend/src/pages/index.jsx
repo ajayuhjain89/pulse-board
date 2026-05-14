@@ -10,9 +10,10 @@ import PollView from "./PollView";
 import Register from "./Register";
 
 const ProtectedRoute = ({ children }) => {
-  const { user, loading } = useAuth();
+  const { user, authReady } = useAuth();
 
-  if (loading) {
+  // While auth is initializing, show loading spinner
+  if (!authReady) {
     return (
       <div style={{
         display: "flex",
@@ -31,6 +32,7 @@ const ProtectedRoute = ({ children }) => {
     );
   }
 
+  // Auth is ready - check if user is authenticated
   return user ? children : <Navigate to="/login" />;
 };
 

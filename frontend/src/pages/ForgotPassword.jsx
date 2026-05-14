@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { Link, useNavigate } from "react-router-dom";
+import OTPInput from "../components/OTPInput";
 import { useAuth } from "../context/AuthContext";
 
 const getErrorMessage = (error, fallbackMessage) => {
@@ -20,9 +21,15 @@ const ForgotPassword = () => {
   const { forgotPassword, resetPassword } = useAuth();
   const navigate = useNavigate();
 
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "auto";
+    };
+  }, []);
+
   const handleRequestReset = async (e) => {
-    e.preventDefault();
-    if (!email) return toast.error("Please enter your email");
+    e.preventDefault();    if (isLoading) return;    if (!email) return toast.error("Please enter your email");
     
     setIsLoading(true);
     try {
@@ -37,8 +44,7 @@ const ForgotPassword = () => {
   };
 
   const handleResetPassword = async (e) => {
-    e.preventDefault();
-    if (!otp || !newPassword) return toast.error("Please fill all fields");
+    e.preventDefault();    if (isLoading) return;    if (!otp || !newPassword) return toast.error("Please fill all fields");
     
     setIsLoading(true);
     try {
@@ -62,7 +68,7 @@ const ForgotPassword = () => {
 
         <div className="auth-form-card">
           {step === 1 ? (
-            <>
+            <form onSubmit={handleRequestReset}>
               <div>
                 <label style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: "10px", letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--ink-3)", marginBottom: "0.5rem" }}>
                   Email
@@ -78,7 +84,7 @@ const ForgotPassword = () => {
               </div>
 
               <button
-                onClick={handleRequestReset}
+                type="submit"
                 disabled={isLoading}
                 className="btn-white"
                 style={{
@@ -91,21 +97,14 @@ const ForgotPassword = () => {
               >
                 {isLoading ? "Sending…" : "Send Reset Code"}
               </button>
-            </>
+            </form>
           ) : (
-            <>
+            <form onSubmit={handleResetPassword}>
               <div>
                 <label style={{ display: "block", fontFamily: "var(--font-mono)", fontSize: "10px", letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--ink-3)", marginBottom: "0.5rem" }}>
                   Reset Code (OTP)
                 </label>
-                <input
-                  type="text"
-                  placeholder="123456"
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
-                  style={{ width: "100%", letterSpacing: "0.2em", textAlign: "center", fontSize: "1.25rem", marginBottom: "1rem" }}
-                  maxLength={6}
-                />
+                <OTPInput length={6} value={otp} onChange={setOtp} autoFocus={true} name="reset-otp" />
               </div>
               
               <div>
@@ -122,7 +121,7 @@ const ForgotPassword = () => {
               </div>
 
               <button
-                onClick={handleResetPassword}
+                type="submit"
                 disabled={isLoading}
                 className="btn-white"
                 style={{
@@ -135,7 +134,7 @@ const ForgotPassword = () => {
               >
                 {isLoading ? "Resetting…" : "Reset Password"}
               </button>
-            </>
+            </form>
           )}
         </div>
 

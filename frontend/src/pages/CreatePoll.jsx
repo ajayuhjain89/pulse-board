@@ -50,6 +50,7 @@ const CreatePoll = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!expiresAt) return toast.error("Please set an expiry date.");
     setIsSubmitting(true);
     try {
