@@ -1,24 +1,53 @@
 import { googleLogout } from "@react-oauth/google";
 import axios from "axios";
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 
 axios.defaults.baseURL = `${import.meta.env.VITE_API_URL}/api`;
-axios.defaults.timeout = 20000;
 
 const AuthContext = createContext();
 
+// Synchronously restore token before any component mounts
 const savedUserInit = localStorage.getItem("user");
 const initialUser = savedUserInit ? JSON.parse(savedUserInit) : null;
-
-// Ensure token is applied synchronously before any React component mounts and requests
 if (initialUser?.token) {
   axios.defaults.headers.common["Authorization"] = `Bearer ${initialUser.token}`;
 }
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(initialUser);
+  // eslint-disable-next-line no-unused-vars
+  const [loading, setLoading] = useState(false);
+  const interceptorRef = useRef(null);
 
-  const loading = false;
+  // Set up global 401 interceptor once
+  useEffect(() => {
+    interceptorRef.current = axios.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response?.status === 401) {
+          googleLogout();
+          setUser(null);
+          localStorage.removeItem("user");
+          delete axios.defaults.headers.common["Authorization"];
+          const path = window.location.pathname;
+          if (
+            path !== "/login" &&
+            path !== "/register" &&
+            path !== "/forgot-password"
+          ) {
+            window.location.href = "/login";
+          }
+        }
+        return Promise.reject(error);
+      }
+    );
+
+    return () => {
+      if (interceptorRef.current !== null) {
+        axios.interceptors.response.eject(interceptorRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (user?.token) {
@@ -69,11 +98,22 @@ export const AuthProvider = ({ children }) => {
     googleLogout();
     setUser(null);
     localStorage.removeItem("user");
+    delete axios.defaults.headers.common["Authorization"];
   };
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, login, verifyOtp, forgotPassword, resetPassword, loginWithGoogle, register, logout }}
+      value={{
+        user,
+        loading,
+        login,
+        verifyOtp,
+        forgotPassword,
+        resetPassword,
+        loginWithGoogle,
+        register,
+        logout,
+      }}
     >
       {children}
     </AuthContext.Provider>

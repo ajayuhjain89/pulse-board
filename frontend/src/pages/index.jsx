@@ -10,7 +10,27 @@ import PollView from "./PollView";
 import Register from "./Register";
 
 const ProtectedRoute = ({ children }) => {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: "60vh",
+      }}>
+        <div style={{
+          width: "20px", height: "20px",
+          border: "2px solid var(--hairline)",
+          borderTopColor: "var(--ink)",
+          borderRadius: "50%",
+          animation: "spin 0.75s linear infinite",
+        }} />
+      </div>
+    );
+  }
+
   return user ? children : <Navigate to="/login" />;
 };
 

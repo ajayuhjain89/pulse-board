@@ -238,7 +238,7 @@ router.post("/forgot-password", async (req, res) => {
 
     if (!user) {
       console.log(`[FORGOT PASSWORD] User not found: ${email}`);
-      return res.status(404).json({ message: "User not found" });
+      return res.status(404).json({ message: "If this email is registered, an OTP has been sent." });
     }
 
     console.log(`[FORGOT PASSWORD] Generating OTP for ${email}...`);
@@ -322,6 +322,7 @@ router.post("/google", async (req, res) => {
         email,
         googleId,
         avatar,
+        isVerified: true,
       });
     } else if (!user.googleId) {
       // Link Google ID if user exists but hasn't linked Google yet

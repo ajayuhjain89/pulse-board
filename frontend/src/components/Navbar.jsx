@@ -56,7 +56,7 @@ const Navbar = () => {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: "60px" }}>
           {/* LOGO */}
           <Link
-            to={user ? "/dashboard" : "/"}
+            to="/"
             style={{ display: "flex", alignItems: "center", gap: "0.5rem", textDecoration: "none" }}
           >
             <div

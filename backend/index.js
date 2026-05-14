@@ -68,5 +68,3 @@ mongoose
   .catch((err) => {
     console.error("MongoDB connection error:", err);
   });
-
-    dotenv.config({ path: new URL("./.env", import.meta.url) });
