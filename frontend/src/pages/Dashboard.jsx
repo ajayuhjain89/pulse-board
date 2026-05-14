@@ -91,8 +91,18 @@ const Dashboard = () => {
 
       {/* Content Grid */}
       {loading ? (
-        <div className="flex justify-center items-center py-20">
-          <Loader2 className="animate-spin text-(--ink-3) w-8 h-8" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="skeleton-card">
+              <div className="skeleton-line short" style={{height:16, width:'60%'}} />
+              <div className="skeleton-line" style={{height:12}} />
+              <div style={{flex:1}} />
+              <div style={{display:'flex', gap:8}}>
+                <div className="skeleton-line" style={{height:10, width:80}} />
+                <div className="skeleton-line short" style={{height:10, width:40}} />
+              </div>
+            </div>
+          ))}
         </div>
       ) : polls.length === 0 ? (
         <div className="empty-state">
