@@ -16,42 +16,71 @@ const generateToken = (id) => {
 
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
+const getSmtpPort = () => Number(process.env.SMTP_PORT || 587);
+
 const getTransporter = () => {
+  const smtpPort = getSmtpPort();
   return nodemailer.createTransport({
-    host: process.env.SMTP_HOST || "smtp.ethereal.email",
-    port: process.env.SMTP_PORT || 587,
+    host: process.env.SMTP_HOST || "smtp.sendgrid.net",
+    port: smtpPort,
+    secure: smtpPort === 465,
+    requireTLS: true,
     auth: {
-      user: process.env.SMTP_USER || "fake_user",
-      pass: process.env.SMTP_PASS || "fake_pass"
-    }
+      user: process.env.SMTP_USER || "apikey",
+      pass: process.env.SMTP_PASS || ""
+    },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
+    tls: {
+      minVersion: "TLSv1.2",
+    },
   });
 };
 
+export const verifyEmailTransporter = async () => {
+  console.log("[SMTP] Verifying mail transporter configuration...");
+  console.log(`[SMTP] host=${process.env.SMTP_HOST || "smtp.sendgrid.net"}, port=${getSmtpPort()}, user=${process.env.SMTP_USER || "apikey"}, from=${process.env.EMAIL_FROM || "<default sender>"}`);
+
+  if (!process.env.SMTP_USER || process.env.SMTP_USER !== "apikey") {
+    console.warn(`[SMTP] SMTP_USER should be \"apikey\" for SendGrid. Current value: ${process.env.SMTP_USER || "<missing>"}`);
+  }
+
+  if (!process.env.SMTP_PASS) {
+    console.warn("[SMTP] SMTP_PASS is missing. Email sending will fail until Render env vars are fixed.");
+  }
+
+  if (!process.env.EMAIL_FROM) {
+    console.warn("[SMTP] EMAIL_FROM is missing. Falling back to a default sender address.");
+  }
+
+  const transporter = getTransporter();
+  await transporter.verify();
+  console.log("[SMTP] Mail transporter verified successfully.");
+};
+
+const getFromAddress = () => process.env.EMAIL_FROM?.trim() || '"PulseBoard Auth" <noreply@pulseboard.com>';
+
 const sendOTP = async (email, otp) => {
-  console.log(`👉 [DEV] Attempting to send OTP: ${otp} to ${email}`);
+  console.log(`👉 [OTP] Attempting to send OTP: ${otp} to ${email}`);
   try {
-    if (process.env.SMTP_HOST && process.env.SMTP_HOST !== "smtp.ethereal.email") {
-      const transporter = getTransporter();
-      
-      // wrap in a timeout so it doesn't hang forever
-      const sendPromise = transporter.sendMail({
-        from: process.env.EMAIL_FROM || '"PulseBoard <noreply@pulseboard.com>',
-        to: email,
-        subject: "Your PulseBoard Authentication Code",
-        text: `Your one-time password is: ${otp}\nIt will expire in 10 minutes.\n\nWelcome to PulseBoard!`
-      });
+    const transporter = getTransporter();
+    const timeoutMs = Number(process.env.SMTP_SEND_TIMEOUT_MS || 20000);
+    const sendPromise = transporter.sendMail({
+      from: getFromAddress(),
+      to: email,
+      subject: "Your PulseBoard verification code",
+      text: `Your one-time password is: ${otp}\nIt will expire in 10 minutes.\n\nWelcome to PulseBoard!`,
+    });
 
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("SendGrid connection timeout")), 8000)
-      );
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`SendGrid connection timeout after ${timeoutMs}ms`)), timeoutMs);
+    });
 
-      const info = await Promise.race([sendPromise, timeoutPromise]);
-      console.log(`✅ [DEV] OTP email sent successfully to ${email}. Message ID: ${info.messageId}`);
-    } else {
-      console.log("⚠️ [DEV] SMTP_HOST not configured or is ethereal. Skipping actual email send.");
-    }
+    const info = await Promise.race([sendPromise, timeoutPromise]);
+    console.log(`✅ [OTP] Email sent successfully to ${email}. Message ID: ${info.messageId || "<none>"}`);
   } catch (error) {
-    console.error("❌ [DEV] Email sending failed:", error.message);
+    console.error("❌ [OTP] Email sending failed:", error);
     throw new Error("Failed to send OTP email: " + error.message);
   }
 };
@@ -162,24 +191,42 @@ router.post("/verify-otp", async (req, res) => {
 });
 
 router.post("/forgot-password", async (req, res) => {
+  console.log(`\n[FORGOT PASSWORD] Received request for: ${req.body?.email}`);
   try {
     const { email } = req.body;
+
+    if (!email) {
+      console.log("[FORGOT PASSWORD] Missing email field");
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    console.log(`[FORGOT PASSWORD] Looking up user ${email}...`);
     const user = await User.findOne({ email });
 
     if (!user) {
+      console.log(`[FORGOT PASSWORD] User not found: ${email}`);
       return res.status(404).json({ message: "User not found" });
     }
 
+    console.log(`[FORGOT PASSWORD] Generating OTP for ${email}...`);
     const otp = generateOTP();
     user.otp = otp;
     user.otpExpiry = new Date(Date.now() + 10 * 60000);
     await user.save();
 
-    await sendOTP(user.email, otp);
-    
-    res.json({ message: "OTP sent for password reset" });
+    console.log(`[FORGOT PASSWORD] Sending OTP email for ${email}...`);
+    try {
+      await sendOTP(user.email, otp);
+    } catch (emailError) {
+      console.error(`[FORGOT PASSWORD] Email delivery failed for ${email}:`, emailError.message);
+      return res.status(500).json({ message: emailError.message || "Failed to send OTP email" });
+    }
+
+    console.log(`[FORGOT PASSWORD] OTP sent successfully for ${email}`);
+    return res.status(200).json({ message: "OTP sent for password reset" });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error(`[FORGOT PASSWORD] Fatal error:`, error);
+    return res.status(500).json({ message: "Internal Server Error during forgot-password request" });
   }
 });
 

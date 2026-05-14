@@ -1,10 +1,10 @@
-import "dotenv/config";
 import cors from "cors";
+import "dotenv/config";
 import express from "express";
 import http from "http";
 import mongoose from "mongoose";
 import { Server } from "socket.io";
-import authRoutes from "./routes/authRoutes.js";
+import authRoutes, { verifyEmailTransporter } from "./routes/authRoutes.js";
 import pollRoutes from "./routes/pollRoutes.js";
 import { setIO } from "./socket.js";
 
@@ -33,6 +33,10 @@ app.use(express.json());
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/polls", pollRoutes);
+
+void verifyEmailTransporter().catch((error) => {
+  console.error("[SMTP] Transporter verification failed:", error.message);
+});
 
 // Socket.io connection
 io.on("connection", (socket) => {

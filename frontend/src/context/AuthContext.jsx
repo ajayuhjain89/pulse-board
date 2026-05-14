@@ -3,6 +3,7 @@ import axios from "axios";
 import { createContext, useContext, useEffect, useState } from "react";
 
 axios.defaults.baseURL = `${import.meta.env.VITE_API_URL}/api`;
+axios.defaults.timeout = 20000;
 
 const AuthContext = createContext();
 
