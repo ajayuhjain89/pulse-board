@@ -1,12 +1,15 @@
 import cors from "cors";
-import "dotenv/config";
+import dotenv from "dotenv";
 import express from "express";
 import http from "http";
 import mongoose from "mongoose";
 import { Server } from "socket.io";
-import authRoutes, { verifyEmailTransporter } from "./routes/authRoutes.js";
-import pollRoutes from "./routes/pollRoutes.js";
 import { setIO } from "./socket.js";
+
+dotenv.config({ path: new URL("./.env", import.meta.url) });
+
+const { default: authRoutes, verifyEmailTransporter } = await import("./routes/authRoutes.js");
+const { default: pollRoutes } = await import("./routes/pollRoutes.js");
 
 const app = express();
 const server = http.createServer(app);
@@ -65,3 +68,5 @@ mongoose
   .catch((err) => {
     console.error("MongoDB connection error:", err);
   });
+
+    dotenv.config({ path: new URL("./.env", import.meta.url) });

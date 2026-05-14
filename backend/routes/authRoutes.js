@@ -1,3 +1,4 @@
+import sgMail from "@sendgrid/mail";
 import bcrypt from "bcryptjs";
 import express from "express";
 import { OAuth2Client } from "google-auth-library";
@@ -17,6 +18,8 @@ const generateToken = (id) => {
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 const getSmtpPort = () => Number(process.env.SMTP_PORT || 587);
+
+const getSendGridApiKey = () => process.env.SENDGRID_API_KEY || process.env.SMTP_PASS || "";
 
 const getTransporter = () => {
   const smtpPort = getSmtpPort();
@@ -38,6 +41,31 @@ const getTransporter = () => {
   });
 };
 
+const getMailPayload = (email, otp) => ({
+  from: process.env.EMAIL_FROM?.trim() || '"PulseBoard Auth" <noreply@pulseboard.com>',
+  to: email,
+  subject: "Your PulseBoard verification code",
+  text: `Your one-time password is: ${otp}\nIt will expire in 10 minutes.\n\nWelcome to PulseBoard!`,
+});
+
+const sendViaSendGridApi = async (email, otp) => {
+  const apiKey = getSendGridApiKey();
+  if (!apiKey) {
+    throw new Error("SendGrid API key is missing");
+  }
+
+  sgMail.setApiKey(apiKey);
+
+  const timeoutMs = Number(process.env.SENDGRID_API_TIMEOUT_MS || 15000);
+  const sendPromise = sgMail.send(getMailPayload(email, otp));
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(`SendGrid API timeout after ${timeoutMs}ms`)), timeoutMs);
+  });
+
+  const [response] = await Promise.race([sendPromise, timeoutPromise]);
+  return response;
+};
+
 export const verifyEmailTransporter = async () => {
   console.log("[SMTP] Verifying mail transporter configuration...");
   console.log(`[SMTP] host=${process.env.SMTP_HOST || "smtp.sendgrid.net"}, port=${getSmtpPort()}, user=${process.env.SMTP_USER || "apikey"}, from=${process.env.EMAIL_FROM || "<default sender>"}`);
@@ -54,31 +82,36 @@ export const verifyEmailTransporter = async () => {
     console.warn("[SMTP] EMAIL_FROM is missing. Falling back to a default sender address.");
   }
 
+  if (!getSendGridApiKey()) {
+    console.warn("[SMTP] SendGrid API key is missing from SMTP_PASS or SENDGRID_API_KEY.");
+  }
+
   const transporter = getTransporter();
   await transporter.verify();
   console.log("[SMTP] Mail transporter verified successfully.");
 };
 
-const getFromAddress = () => process.env.EMAIL_FROM?.trim() || '"PulseBoard Auth" <noreply@pulseboard.com>';
-
 const sendOTP = async (email, otp) => {
   console.log(`👉 [OTP] Attempting to send OTP: ${otp} to ${email}`);
   try {
-    const transporter = getTransporter();
-    const timeoutMs = Number(process.env.SMTP_SEND_TIMEOUT_MS || 20000);
-    const sendPromise = transporter.sendMail({
-      from: getFromAddress(),
-      to: email,
-      subject: "Your PulseBoard verification code",
-      text: `Your one-time password is: ${otp}\nIt will expire in 10 minutes.\n\nWelcome to PulseBoard!`,
-    });
+    try {
+      const apiResponse = await sendViaSendGridApi(email, otp);
+      console.log(`✅ [OTP] Email sent successfully to ${email} using SendGrid API. Status: ${apiResponse?.statusCode || "<unknown>"}`);
+      return;
+    } catch (apiError) {
+      console.warn(`[OTP] SendGrid API delivery failed for ${email}: ${apiError.message}`);
+      console.warn(`[OTP] Falling back to SMTP for ${email}...`);
+    }
 
+    const transporter = getTransporter();
+    const timeoutMs = Number(process.env.SMTP_SEND_TIMEOUT_MS || 12000);
+    const sendPromise = transporter.sendMail(getMailPayload(email, otp));
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(`SendGrid connection timeout after ${timeoutMs}ms`)), timeoutMs);
+      setTimeout(() => reject(new Error(`SMTP connection timeout after ${timeoutMs}ms`)), timeoutMs);
     });
 
     const info = await Promise.race([sendPromise, timeoutPromise]);
-    console.log(`✅ [OTP] Email sent successfully to ${email}. Message ID: ${info.messageId || "<none>"}`);
+    console.log(`✅ [OTP] Email sent successfully to ${email} using SMTP. Message ID: ${info.messageId || "<none>"}`);
   } catch (error) {
     console.error("❌ [OTP] Email sending failed:", error);
     throw new Error("Failed to send OTP email: " + error.message);
