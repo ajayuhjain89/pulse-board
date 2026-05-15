@@ -186,7 +186,7 @@ router.get("/:id/analytics", protect, async (req, res) => {
       return res.status(403).json({ message: "Not authorized" });
     }
 
-    const responses = await Response.find({ pollId: poll._id });
+    const responses = await Response.find({ pollId: poll._id }).populate("userId", "name email avatar");
     const analytics = calculateAnalytics(poll, responses);
 
     res.json({ totalResponses: responses.length, analytics, poll });

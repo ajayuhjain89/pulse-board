@@ -556,7 +556,7 @@ const PollResults = () => {
                                     {v.name ? v.name.charAt(0).toUpperCase() : "?"}
                                   </div>
                                 )}
-                                <span>{v.name || v.email.split('@')[0]}</span>
+                                <span>{v.name || (v.email ? v.email.split('@')[0] : 'Unknown')}</span>
                               </div>
                             ))}
                           </div>
