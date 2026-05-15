@@ -92,7 +92,7 @@ export const verifyEmailTransporter = async () => {
 };
 
 const sendOTP = async (email, otp) => {
-  console.log(`👉 [OTP] Attempting to send OTP: ${otp} to ${email}`);
+  console.log(`👉 [OTP] Attempting to send OTP to ${email}`);
   try {
     try {
       const apiResponse = await sendViaSendGridApi(email, otp);
