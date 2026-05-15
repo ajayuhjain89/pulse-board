@@ -1,5 +1,6 @@
 import { Activity, LogOut, Moon, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
@@ -11,6 +12,8 @@ const Navbar = () => {
   const { isDarkMode, toggleTheme } = useTheme();
   const [scrolled, setScrolled] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const modalRef = useRef(null);
+  const cancelButtonRef = useRef(null);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -20,18 +23,62 @@ const Navbar = () => {
 
   useEffect(() => {
     if (showLogoutModal) {
-      document.body.style.overflow = "hidden";
+      const body = document.body;
+      const previousOverflow = body.style.overflow;
+      const previousPaddingRight = body.style.paddingRight;
+      const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+
+      body.style.overflow = "hidden";
+      if (scrollbarWidth > 0) {
+        body.style.paddingRight = `${scrollbarWidth}px`;
+      }
+
+      const focusTimer = window.requestAnimationFrame(() => {
+        cancelButtonRef.current?.focus();
+      });
+
       const handleEscape = (e) => {
         if (e.key === "Escape") {
           setShowLogoutModal(false);
+          return;
+        }
+
+        if (e.key === "Tab" && modalRef.current) {
+          const focusable = modalRef.current.querySelectorAll(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+          );
+          const focusableElements = Array.from(focusable).filter((el) => !el.disabled);
+          if (focusableElements.length === 0) return;
+
+          const first = focusableElements[0];
+          const last = focusableElements[focusableElements.length - 1];
+          const active = document.activeElement;
+
+          if (e.shiftKey && active === first) {
+            e.preventDefault();
+            last.focus();
+          } else if (!e.shiftKey && active === last) {
+            e.preventDefault();
+            first.focus();
+          }
         }
       };
+
       window.addEventListener("keydown", handleEscape);
-      return () => window.removeEventListener("keydown", handleEscape);
+      return () => {
+        window.cancelAnimationFrame(focusTimer);
+        window.removeEventListener("keydown", handleEscape);
+        body.style.overflow = previousOverflow;
+        body.style.paddingRight = previousPaddingRight;
+      };
     } else {
       document.body.style.overflow = "";
+      document.body.style.paddingRight = "";
     }
-    return () => { document.body.style.overflow = ""; };
+    return () => {
+      document.body.style.overflow = "";
+      document.body.style.paddingRight = "";
+    };
   }, [showLogoutModal]);
 
   const handleLogout = () => {
@@ -43,6 +90,7 @@ const Navbar = () => {
   const isActive = (path) => location.pathname === path;
 
   return (
+    <>
     <nav
       style={{
         position: "fixed",
@@ -186,78 +234,84 @@ const Navbar = () => {
         </div>
       </div>
 
-      {/* LOGOUT CONFIRMATION MODAL */}
-      {showLogoutModal && (
+    </nav>
+    {showLogoutModal && typeof document !== "undefined" && createPortal(
+      <div
+        className="fixed inset-0 z-100 flex items-center justify-center p-4 animate-fade-in"
+        style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(4px)" }}
+        onClick={(e) => { if (e.target === e.currentTarget) setShowLogoutModal(false); }}
+      >
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in"
-          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(4px)" }}
-          onClick={(e) => { if (e.target === e.currentTarget) setShowLogoutModal(false); }}
+          ref={modalRef}
+          className="scale-in"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Sign out confirmation"
+          style={{
+            background: "var(--paper)",
+            borderRadius: "12px",
+            border: "1px solid var(--hairline)",
+            maxWidth: "360px",
+            width: "100%",
+            overflow: "hidden",
+          }}
         >
-          <div
-            className="scale-in"
-            style={{
-              background: "var(--paper)",
-              borderRadius: "12px",
-              border: "1px solid var(--hairline)",
-              maxWidth: "360px",
-              width: "100%",
-              overflow: "hidden",
-            }}
-          >
-            <div style={{ padding: "1.75rem" }}>
-              <div
-                style={{
-                  width: "44px", height: "44px", borderRadius: "50%",
-                  background: "rgba(192,57,43,0.1)",
-                  display: "flex", alignItems: "center", justifyItems: "center", justifyContent: "center",
-                  marginBottom: "1.25rem",
-                }}
+          <div style={{ padding: "1.75rem" }}>
+            <div
+              style={{
+                width: "44px", height: "44px", borderRadius: "50%",
+                background: "rgba(192,57,43,0.1)",
+                display: "flex", alignItems: "center", justifyItems: "center", justifyContent: "center",
+                marginBottom: "1.25rem",
+              }}
+            >
+              <LogOut style={{ color: "var(--danger)", width: "20px", height: "20px" }} />
+            </div>
+            <h3
+              style={{
+                fontSize: "1.0625rem", fontWeight: 600, color: "var(--ink)",
+                marginBottom: "0.625rem", letterSpacing: "-0.01em",
+              }}
+            >
+              Sign out?
+            </h3>
+            <p style={{ fontSize: "0.875rem", color: "var(--ink-2)", marginBottom: "1.75rem", lineHeight: 1.5 }}>
+              Are you sure you want to sign out of your account? You will need to log back in to access your polls and dashboard.
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem" }}>
+              <button
+                ref={cancelButtonRef}
+                onClick={() => setShowLogoutModal(false)}
+                className="btn-secondary"
+                style={{ padding: "0.5rem 1rem", fontSize: "0.875rem" }}
               >
-                <LogOut style={{ color: "var(--danger)", width: "20px", height: "20px" }} />
-              </div>
-              <h3
+                Cancel
+              </button>
+              <button
+                onClick={handleLogout}
                 style={{
-                  fontSize: "1.0625rem", fontWeight: 600, color: "var(--ink)",
-                  marginBottom: "0.625rem", letterSpacing: "-0.01em",
+                  padding: "0.5rem 1rem",
+                  background: "var(--danger)",
+                  color: "#fff",
+                  borderRadius: "6px",
+                  fontWeight: 500,
+                  fontSize: "0.875rem",
+                  border: "none",
+                  cursor: "pointer",
+                  transition: "opacity 0.15s",
                 }}
+                onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
+                onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
               >
-                Sign out?
-              </h3>
-              <p style={{ fontSize: "0.875rem", color: "var(--ink-2)", marginBottom: "1.75rem", lineHeight: 1.5 }}>
-                Are you sure you want to sign out of your account? You will need to log back in to access your polls and dashboard.
-              </p>
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem" }}>
-                <button
-                  onClick={() => setShowLogoutModal(false)}
-                  className="btn-secondary"
-                  style={{ padding: "0.5rem 1rem", fontSize: "0.875rem" }}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleLogout}
-                  style={{
-                    padding: "0.5rem 1rem",
-                    background: "var(--danger)",
-                    color: "#fff",
-                    borderRadius: "6px",
-                    fontWeight: 500,
-                    fontSize: "0.875rem",
-                    border: "none",
-                    cursor: "pointer",
-                    transition: "opacity 0.15s",
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
-                  onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
-                >
-                  Sign Out
-                </button>
-              </div>
+                Sign Out
+              </button>
             </div>
           </div>
         </div>
-      )}
-    </nav>
+      </div>,
+      document.body
+    )}
+    </>
   );
 };
 
