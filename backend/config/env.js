@@ -29,6 +29,9 @@ const envSchema = z.object({
   SMTP_USER: z.string().default("apikey"),
   SMTP_PASS: z.string().optional(),
   EMAIL_FROM: z.string().default('"PulseBoard Auth" <noreply@pulseboard.com>'),
+  // Frontend base URL used for CTA / fallback links in transactional emails.
+  // Defaults to the deployed frontend; override in dev (e.g. http://localhost:5173).
+  APP_URL: z.string().url().default("https://pulse-board-mauve.vercel.app"),
   SENDGRID_API_KEY: z.string().optional(),
   SENDGRID_API_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
   SMTP_SEND_TIMEOUT_MS: z.coerce.number().int().positive().default(12000),
