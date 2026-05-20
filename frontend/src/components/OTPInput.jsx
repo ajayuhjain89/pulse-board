@@ -1,6 +1,13 @@
 import { useEffect, useRef } from "react";
 
-const OTPInput = ({ length = 6, value = "", onChange, autoFocus = true, name = "otp" }) => {
+const OTPInput = ({
+  length = 6,
+  value = "",
+  onChange,
+  autoFocus = true,
+  name = "otp",
+  error = false,
+}) => {
   const inputs = useRef([]);
 
   useEffect(() => {
@@ -37,7 +44,10 @@ const OTPInput = ({ length = 6, value = "", onChange, autoFocus = true, name = "
 
   const handlePaste = (e) => {
     e.preventDefault();
-    const paste = (e.clipboardData || window.clipboardData).getData("text").replace(/\D/g, "").slice(0, length);
+    const paste = (e.clipboardData || window.clipboardData)
+      .getData("text")
+      .replace(/\D/g, "")
+      .slice(0, length);
     if (!paste) return;
     const chars = paste.split("");
     onChange(chars.join(""));
@@ -46,7 +56,7 @@ const OTPInput = ({ length = 6, value = "", onChange, autoFocus = true, name = "
   };
 
   return (
-    <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center" }}>
+    <div className="otp-input" aria-invalid={error || undefined}>
       {Array.from({ length }).map((_, i) => (
         <input
           key={i}
@@ -59,6 +69,7 @@ const OTPInput = ({ length = 6, value = "", onChange, autoFocus = true, name = "
           onChange={(e) => handleChange(e, i)}
           onKeyDown={(e) => handleKeyDown(e, i)}
           onPaste={handlePaste}
+          className={error ? "otp-input__box--error" : ""}
           style={{
             width: "3rem",
             height: "3rem",

@@ -1,12 +1,10 @@
-import axios from "axios";
 import { ArrowLeft, Loader2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { Link, useParams } from "react-router-dom";
 import { io } from "socket.io-client";
 import { useAuth } from "../context/AuthContext";
-
-const SOCKET_SERVER_URL = import.meta.env.VITE_API_URL;
+import { apiClient, getAccessToken, SERVER_ORIGIN } from "../lib/apiClient";
 
 /* Animated bar that grows when it enters the viewport */
 const AnimatedBar = ({ percentage, isWinner, delay = 0 }) => {
@@ -20,31 +18,20 @@ const AnimatedBar = ({ percentage, isWinner, delay = 0 }) => {
         obs.disconnect();
         setTimeout(() => setWidth(percentage), delay);
       },
-      { threshold: 0.3 }
+      { threshold: 0.3 },
     );
     if (ref.current) obs.observe(ref.current);
     return () => obs.disconnect();
   }, [percentage, delay]);
 
   return (
-    <div
-      ref={ref}
-      style={{
-        height: "5px",
-        background: "var(--subtle)",
-        borderRadius: "99px",
-        overflow: "hidden",
-        position: "relative",
-      }}
-    >
+    <div ref={ref} className="result-bar">
       {width > 0 && (
         <div
+          className="result-bar__fill"
           style={{
-            height: "100%",
-            borderRadius: "99px",
             background: isWinner ? "var(--accent)" : "var(--ink-3)",
             width: `${width}%`,
-            transition: "width 0.75s cubic-bezier(0.25, 1, 0.5, 1)",
           }}
         />
       )}
@@ -54,7 +41,7 @@ const AnimatedBar = ({ percentage, isWinner, delay = 0 }) => {
 
 const PollResults = () => {
   const { id } = useParams();
-  const { user } = useAuth();
+  const { user, authReady } = useAuth();
   const [poll, setPoll] = useState(null);
   const [analytics, setAnalytics] = useState({});
   const [totalResponses, setTotalResponses] = useState(0);
@@ -62,46 +49,151 @@ const PollResults = () => {
   const [errorMsg, setErrorMsg] = useState("");
   const [isPublishing, setIsPublishing] = useState(false);
   const [openVoterMenu, setOpenVoterMenu] = useState(null);
+  const [socketState, setSocketState] = useState("connecting");
+  const [flashId, setFlashId] = useState(null);
   const voterMenuRef = useRef(null);
+  const isCreatorRef = useRef(false);
+  const prevCountsRef = useRef(null);
 
-  const fetchResults = useCallback(async () => {
-    try {
-      const { data } = await axios.get(`/polls/${id}/results`);
-      setPoll(data.poll);
-      setAnalytics(data.analytics);
-      setTotalResponses(data.totalResponses || 0);
-      setErrorMsg("");
-    } catch (err) {
-      if (err.response?.status === 403) {
-        if (user) {
+  // Initial load. The async worker is defined inside the effect so its
+  // post-await setState calls aren't flagged as synchronous effect updates.
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadResults = async () => {
+      try {
+        const { data } = await apiClient.get(`/polls/${id}/results`);
+        if (cancelled) return;
+        setPoll(data.poll);
+        setAnalytics(data.analytics);
+        setTotalResponses(data.totalResponses || 0);
+        setErrorMsg("");
+      } catch (err) {
+        if (cancelled) return;
+        if (err.response?.status === 403 && user) {
           try {
-            const { data } = await axios.get(`/polls/${id}/analytics`);
+            const { data } = await apiClient.get(`/polls/${id}/analytics`);
+            if (cancelled) return;
             setPoll(data.poll);
             setAnalytics(data.analytics);
             setTotalResponses(data.totalResponses || 0);
             setErrorMsg("");
-            return;
           } catch (analyticsErr) {
-            setErrorMsg(analyticsErr.response?.data?.message || "Failed to load analytics");
+            if (!cancelled) {
+              setErrorMsg(
+                analyticsErr.response?.data?.message ||
+                  "Failed to load analytics",
+              );
+            }
           }
+        } else if (err.response?.status === 403) {
+          setErrorMsg(
+            err.response?.data?.message || "Results are not published yet.",
+          );
         } else {
-          setErrorMsg(err.response?.data?.message || "Results are not published yet.");
+          setErrorMsg(err.response?.data?.message || "Failed to load results");
         }
-      } else {
-        setErrorMsg("Failed to load results");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    } finally {
-      setLoading(false);
-    }
+    };
+
+    loadResults();
+    return () => {
+      cancelled = true;
+    };
   }, [id, user]);
 
+  // Keep an up-to-date creator flag for the socket handlers (which close over
+  // stale state otherwise).
   useEffect(() => {
-    (async () => { await fetchResults(); })();
-    const socket = io(SOCKET_SERVER_URL);
-    socket.emit("join_poll", id);
-    socket.on("poll_updated", () => { fetchResults(); });
-    return () => { socket.disconnect(); };
-  }, [id, fetchResults]);
+    isCreatorRef.current = Boolean(
+      user && poll && String(poll.creator) === String(user._id),
+    );
+  }, [user, poll]);
+
+  // Live updates — consume the socket payload directly (no refetch).
+  // Wait for authReady so a signed-in creator's access token is in memory
+  // before the handshake (otherwise the socket connects anonymous and never
+  // joins the creator room).
+  useEffect(() => {
+    if (!authReady) return undefined;
+
+    const socket = io(SERVER_ORIGIN, {
+      auth: { token: getAccessToken() },
+    });
+
+    // setState calls run inside socket callbacks (not synchronously in the
+    // effect body) — the canonical pattern for syncing with an external source.
+    socket.on("connect", () => {
+      setSocketState("connected");
+      // (Re)join on initial connect AND after every reconnect — Socket.IO does
+      // not replay room joins on reconnect.
+      socket.emit("join_poll", id);
+    });
+    socket.on("disconnect", () => setSocketState("disconnected"));
+    socket.on("connect_error", () => setSocketState("disconnected"));
+    socket.io.on("reconnect_attempt", () => {
+      setSocketState("connecting");
+      // Re-auth with the current (possibly rotated) access token.
+      socket.auth = { token: getAccessToken() };
+    });
+
+    socket.on("poll_updated", (payload) => {
+      // The creator gets the richer `poll_updated_creator` event instead.
+      if (isCreatorRef.current) return;
+      if (payload?.analytics) setAnalytics(payload.analytics);
+      if (typeof payload?.totalResponses === "number") {
+        setTotalResponses(payload.totalResponses);
+      }
+    });
+
+    socket.on("poll_updated_creator", (payload) => {
+      if (payload?.pollId !== id) return;
+      if (payload?.analytics) setAnalytics(payload.analytics);
+      if (typeof payload?.totalResponses === "number") {
+        setTotalResponses(payload.totalResponses);
+      }
+    });
+
+    return () => {
+      socket.emit("leave_poll", id);
+      socket.disconnect();
+    };
+  }, [id, authReady]);
+
+  // When an option's count increases vs the previous render, briefly flash a
+  // "+1" chip next to its bar. The first render seeds `prevCountsRef` so
+  // existing votes don't trigger a flash.
+  useEffect(() => {
+    const currentCounts = new Map();
+    Object.values(analytics).forEach((q) =>
+      q.options.forEach((o) => currentCounts.set(o.id, o.count)),
+    );
+
+    if (!prevCountsRef.current) {
+      prevCountsRef.current = currentCounts;
+      return undefined;
+    }
+
+    let increased = null;
+    let delta = 0;
+    for (const [optId, count] of currentCounts) {
+      const prev = prevCountsRef.current.get(optId);
+      if (prev !== undefined && count > prev) {
+        increased = optId;
+        delta = count - prev;
+        break;
+      }
+    }
+    prevCountsRef.current = currentCounts;
+    if (!increased) return undefined;
+
+    // Intentional animation trigger — fires once when new vote(s) arrive.
+    setFlashId({ id: increased, t: Date.now(), delta });
+    const timer = setTimeout(() => setFlashId(null), 1500);
+    return () => clearTimeout(timer);
+  }, [analytics]);
 
   useEffect(() => {
     if (!openVoterMenu) return undefined;
@@ -111,16 +203,12 @@ const PollResults = () => {
         setOpenVoterMenu(null);
       }
     };
-
     const handleEscape = (event) => {
-      if (event.key === "Escape") {
-        setOpenVoterMenu(null);
-      }
+      if (event.key === "Escape") setOpenVoterMenu(null);
     };
 
     document.addEventListener("mousedown", handlePointerDown);
     document.addEventListener("keydown", handleEscape);
-
     return () => {
       document.removeEventListener("mousedown", handlePointerDown);
       document.removeEventListener("keydown", handleEscape);
@@ -130,7 +218,7 @@ const PollResults = () => {
   const handlePublish = async () => {
     setIsPublishing(true);
     try {
-      const { data } = await axios.put(`/polls/${id}/publish`);
+      const { data } = await apiClient.put(`/polls/${id}/publish`);
       toast.success("Results published!");
       setPoll(data.poll);
     } catch (error) {
@@ -140,61 +228,64 @@ const PollResults = () => {
     }
   };
 
-  const renderVoterAvatar = (voter, size = 28) => (
+  const renderVoterAvatar = (voter, size = 28) =>
     voter.avatar ? (
       <img
         src={voter.avatar}
-        alt="Avatar"
-        style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }}
-      />
-    ) : (
-      <div
+        alt=""
         style={{
           width: size,
           height: size,
           borderRadius: "50%",
-          background: "var(--hairline-strong)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: `${Math.max(10, Math.round(size * 0.35))}px`,
-          fontWeight: 700,
-          color: "var(--ink)",
+          objectFit: "cover",
           flexShrink: 0,
+        }}
+      />
+    ) : (
+      <div
+        className="voter-avatar-fallback"
+        style={{
+          width: size,
+          height: size,
+          fontSize: `${Math.max(10, Math.round(size * 0.35))}px`,
         }}
       >
         {voter.name ? voter.name.charAt(0).toUpperCase() : "?"}
       </div>
-    )
-  );
+    );
 
-  const renderVoterName = (voter) => voter.name || (voter.email ? voter.email.split("@")[0] : "Unknown");
+  const renderVoterName = (voter) =>
+    voter.name || (voter.email ? voter.email.split("@")[0] : "Unknown");
 
-  if (loading)
+  if (loading) {
     return (
       <div className="max-w-2xl mx-auto py-12">
-        <div className="skeleton-card" style={{ marginBottom: '1rem' }}>
-          <div className="skeleton-line" style={{ height: 20, width: '55%' }} />
-          <div className="skeleton-line short" style={{ height: 12, width: '40%', marginTop: 8 }} />
+        <div className="skeleton-card" style={{ marginBottom: "1rem" }}>
+          <div className="skeleton-line" style={{ height: 20, width: "55%" }} />
+          <div
+            className="skeleton-line short"
+            style={{ height: 12, width: "40%", marginTop: 8 }}
+          />
         </div>
-
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="skeleton-card" style={{ marginBottom: '1rem' }}>
-            <div className="skeleton-line short" style={{ height: 12, width: '18%' }} />
-            <div className="skeleton-line" style={{ height: 14, width: '70%', marginTop: 8 }} />
+          <div key={i} className="skeleton-card" style={{ marginBottom: "1rem" }}>
+            <div className="skeleton-line short" style={{ height: 12, width: "18%" }} />
+            <div
+              className="skeleton-line"
+              style={{ height: 14, width: "70%", marginTop: 8 }}
+            />
             <div style={{ height: 8, marginTop: 12 }} className="skeleton-line" />
           </div>
         ))}
       </div>
     );
+  }
 
-  if (!poll)
+  if (!poll) {
     return (
-      <div className="text-center py-32">
-        <div style={{ fontFamily: "var(--font-display)", fontStyle: "italic", fontSize: "2.5rem", color: "var(--ink-3)", marginBottom: "1rem" }}>
-          Not found.
-        </div>
-        <p style={{ fontSize: "0.9375rem", color: "var(--ink-3)", marginBottom: "1.5rem" }}>
+      <div className="status-page">
+        <div className="status-page__display-serif">Not found.</div>
+        <p className="status-page__text">
           {errorMsg || "This poll might have been deleted or the link is invalid."}
         </p>
         <Link to="/" className="btn-secondary inline-flex text-sm">
@@ -202,80 +293,77 @@ const PollResults = () => {
         </Link>
       </div>
     );
+  }
 
   const isCreator = user && String(poll.creator) === String(user._id);
   const isExpired = new Date(poll.expiresAt) < new Date();
 
   return (
     <div className="max-w-2xl mx-auto py-12 animate-fade-in">
-      {/* BACK LINK */}
-      <Link
-        to="/dashboard"
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "0.375rem",
-          fontSize: "0.8125rem",
-          fontWeight: 500,
-          color: "var(--ink-3)",
-          transition: "color 0.12s",
-          marginBottom: "2.5rem",
-          textDecoration: "none",
-        }}
-        onMouseEnter={(e) => (e.currentTarget.style.color = "var(--ink)")}
-        onMouseLeave={(e) => (e.currentTarget.style.color = "var(--ink-3)")}
-      >
+      <Link to="/dashboard" className="results-back">
         <ArrowLeft size={15} /> Back to Dashboard
       </Link>
 
-      {/* ANALYTICS HEADER PANEL */}
       <div className="analytics-panel-header mb-8">
-        {/* Live badge + response count */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", marginBottom: "1.25rem" }}>
-          <span className="status-dot status-dot--active" />
-          <span className="mono-label">Live Insights</span>
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "baseline", gap: "0.375rem" }}>
-            <span
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: "1.125rem",
-                fontWeight: 500,
-                letterSpacing: "-0.02em",
-                color: "var(--ink)",
-              }}
-            >
-              {totalResponses}
-            </span>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.625rem",
+            marginBottom: "1.25rem",
+          }}
+        >
+          <span
+            className={`status-dot status-dot--${
+              socketState === "connected"
+                ? "active"
+                : socketState === "connecting"
+                  ? "connecting"
+                  : "disconnected"
+            }`}
+            title={
+              socketState === "connected"
+                ? "Live — updates arrive in real time"
+                : socketState === "connecting"
+                  ? "Reconnecting…"
+                  : "Offline — updates paused"
+            }
+          />
+          <span className="mono-label">
+            {socketState === "connected"
+              ? "Live"
+              : socketState === "connecting"
+                ? "Reconnecting…"
+                : "Offline"}
+          </span>
+          <div
+            style={{
+              marginLeft: "auto",
+              display: "flex",
+              alignItems: "baseline",
+              gap: "0.375rem",
+            }}
+          >
+            <span className="results-count">{totalResponses}</span>
             <span className="mono-label">responses</span>
           </div>
         </div>
 
-        {/* Title */}
-        <h1
-          style={{
-            fontFamily: "var(--font-display)",
-            fontStyle: "italic",
-            fontSize: "clamp(1.75rem, 5vw, 3rem)",
-            lineHeight: 1.05,
-            letterSpacing: "-0.025em",
-            color: "var(--ink)",
-            marginBottom: "0.625rem",
-          }}
-        >
-          {poll.title}
-        </h1>
+        <h1 className="results-title">{poll.title}</h1>
 
-        {poll.description && (
-          <p style={{ fontSize: "0.9rem", color: "var(--ink-2)", lineHeight: 1.6, marginBottom: "0" }}>
-            {poll.description}
-          </p>
-        )}
+        {poll.description && <p className="results-desc">{poll.description}</p>}
 
-        {/* PUBLISH BUTTON */}
         {isCreator && !poll.isPublished && (
           <>
-            <div style={{ height: "1px", background: "var(--hairline)", margin: "1.5rem 0" }} />
-            <div style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
+            <div className="results-hr" />
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "1rem",
+                flexWrap: "wrap",
+              }}
+            >
               <button
                 onClick={handlePublish}
                 disabled={!isExpired || isPublishing}
@@ -286,7 +374,11 @@ const PollResults = () => {
                   pointerEvents: !isExpired || isPublishing ? "none" : "auto",
                   padding: "0.5625rem 1.25rem",
                 }}
-                title={!isExpired ? "Poll must be expired to publish" : "Make results public"}
+                title={
+                  !isExpired
+                    ? "Poll must be expired to publish"
+                    : "Make results public"
+                }
               >
                 {isPublishing ? (
                   <>
@@ -313,20 +405,32 @@ const PollResults = () => {
 
         {poll.isPublished && (
           <>
-            <div style={{ height: "1px", background: "var(--hairline)", margin: "1.5rem 0" }} />
+            <div className="results-hr" />
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "var(--success)", display: "inline-block" }} />
-              <span className="mono-label" style={{ color: "var(--success)" }}>Results published</span>
+              <span
+                style={{
+                  width: "6px",
+                  height: "6px",
+                  borderRadius: "50%",
+                  background: "var(--success)",
+                  display: "inline-block",
+                }}
+              />
+              <span className="mono-label" style={{ color: "var(--success)" }}>
+                Results published
+              </span>
             </div>
           </>
         )}
       </div>
 
-      {/* QUESTION CARDS */}
       <div className="space-y-6 animate-slide-up">
         {poll.questions.map((q, i) => {
           const qAnalytics = analytics[q._id] || { options: [] };
-          const totalVotes = qAnalytics.options.reduce((sum, opt) => sum + opt.count, 0);
+          const totalVotes = qAnalytics.options.reduce(
+            (sum, opt) => sum + opt.count,
+            0,
+          );
 
           let maxVotes = 0;
           let winningOptionId = null;
@@ -339,78 +443,62 @@ const PollResults = () => {
 
           return (
             <div key={q._id} className="polished-panel" style={{ padding: "1.75rem 2rem" }}>
-              {/* Question header */}
-              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "1rem", paddingBottom: "1.25rem", borderBottom: "1px solid var(--hairline)", marginBottom: "1.5rem" }}>
-                <h3
-                  style={{
-                    fontSize: "0.9375rem",
-                    fontWeight: 600,
-                    letterSpacing: "-0.01em",
-                    color: "var(--ink)",
-                    lineHeight: 1.4,
-                    display: "flex",
-                    alignItems: "flex-start",
-                    gap: "0.625rem",
-                    margin: 0,
-                  }}
-                >
-                  <span className="section-label" style={{ flexShrink: 0, marginTop: "2px" }}>{i + 1}.</span>
+              <div className="result-q-head">
+                <h3 className="result-q-title">
+                  <span className="section-label result-q-num">{i + 1}.</span>
                   {q.text}
                 </h3>
                 <div style={{ flexShrink: 0, textAlign: "right" }}>
-                  <span
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      fontSize: "1.125rem",
-                      fontWeight: 500,
-                      color: "var(--ink)",
-                      display: "block",
-                      letterSpacing: "-0.02em",
-                    }}
-                  >
-                    {totalVotes}
-                  </span>
+                  <span className="result-q-count">{totalVotes}</span>
                   <span className="section-label">votes</span>
                 </div>
               </div>
 
-              {/* OPTIONS */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "1.125rem" }}>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "1.125rem",
+                }}
+              >
                 {q.options.map((opt, optIdx) => {
-                  const analyticsOpt = qAnalytics.options.find((o) => o.id === opt._id);
+                  const analyticsOpt = qAnalytics.options.find(
+                    (o) => o.id === opt._id,
+                  );
                   const votes = analyticsOpt ? analyticsOpt.count : 0;
-                  const percentage = totalVotes > 0 ? Math.round((votes / totalVotes) * 100) : 0;
+                  const percentage =
+                    totalVotes > 0 ? Math.round((votes / totalVotes) * 100) : 0;
                   const isWinner = totalVotes > 0 && opt._id === winningOptionId;
 
                   return (
                     <div key={opt._id} style={{ position: "relative" }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          marginBottom: "0.5rem",
-                        }}
-                      >
+                      <div className="result-opt-head">
                         <span
+                          className="result-opt-label"
                           style={{
-                            fontSize: "0.9rem",
                             fontWeight: isWinner ? 600 : 500,
                             color: isWinner ? "var(--ink)" : "var(--ink-2)",
-                            letterSpacing: "-0.01em",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "0.5rem",
                           }}
                         >
                           {opt.text}
                           {isWinner && (
-                            <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-                              <path d="M2.5 7L5.5 10L11.5 4" stroke="var(--accent)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                            <svg
+                              width="13"
+                              height="13"
+                              viewBox="0 0 14 14"
+                              fill="none"
+                            >
+                              <path
+                                d="M2.5 7L5.5 10L11.5 4"
+                                stroke="var(--accent)"
+                                strokeWidth="1.75"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
                             </svg>
                           )}
                         </span>
-                        <div style={{ display: "flex", alignItems: "baseline", gap: "0.375rem", flexShrink: 0, marginLeft: "1rem" }}>
+                        <div className="result-opt-stats">
                           <span
                             style={{
                               fontFamily: "var(--font-mono)",
@@ -426,105 +514,81 @@ const PollResults = () => {
                           </span>
                         </div>
                       </div>
-                      <AnimatedBar percentage={percentage} isWinner={isWinner} delay={optIdx * 80} />
-                      {/* Votors List for Non-Anonymous Polls */}
-                      {analyticsOpt && analyticsOpt.voters && analyticsOpt.voters.length > 0 && (
-                        analyticsOpt.voters.length > 2 ? (
+                      <AnimatedBar
+                        percentage={percentage}
+                        isWinner={isWinner}
+                        delay={optIdx * 80}
+                      />
+                      {flashId?.id === opt._id && (
+                        <span
+                          key={flashId.t}
+                          className="vote-flash"
+                          aria-hidden="true"
+                        >
+                          +{flashId.delta}
+                        </span>
+                      )}
+                      {analyticsOpt &&
+                        analyticsOpt.voters &&
+                        analyticsOpt.voters.length > 0 &&
+                        (analyticsOpt.voters.length > 2 ? (
                           <div
                             ref={voterMenuRef}
                             style={{ marginTop: "0.5rem", position: "relative" }}
                           >
                             <button
                               type="button"
-                              onClick={() => {
-                                setOpenVoterMenu(openVoterMenu === opt._id ? null : opt._id);
-                              }}
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "0.55rem",
-                                padding: "0.4rem 0.6rem 0.4rem 0.45rem",
-                                borderRadius: "999px",
-                                border: "1px solid var(--hairline)",
-                                background: "var(--subtle)",
-                                color: "var(--ink-2)",
-                                cursor: "pointer",
-                                boxShadow: "0 10px 24px -18px rgba(0,0,0,0.35)",
-                              }}
+                              onClick={() =>
+                                setOpenVoterMenu(
+                                  openVoterMenu === opt._id ? null : opt._id,
+                                )
+                              }
+                              className="voter-pill"
                             >
-                              <div style={{ display: "flex", alignItems: "center", paddingLeft: "0.15rem" }}>
-                                {analyticsOpt.voters.slice(0, 3).map((voter, voterIndex) => (
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  paddingLeft: "0.15rem",
+                                }}
+                              >
+                                {analyticsOpt.voters.slice(0, 3).map((voter, vi) => (
                                   <div
-                                    key={voterIndex}
-                                    style={{
-                                      marginLeft: voterIndex === 0 ? 0 : "-0.4rem",
-                                      border: "1px solid var(--paper)",
-                                      borderRadius: "50%",
-                                      boxShadow: "0 6px 16px -10px rgba(0,0,0,0.45)",
-                                    }}
+                                    key={vi}
+                                    className="voter-pill__avatar"
+                                    style={{ marginLeft: vi === 0 ? 0 : "-0.4rem" }}
                                   >
                                     {renderVoterAvatar(voter, 22)}
                                   </div>
                                 ))}
                               </div>
-                              <span style={{ fontSize: "0.6875rem", fontWeight: 600, letterSpacing: "0.01em" }}>
+                              <span className="voter-pill__more">
                                 +{analyticsOpt.voters.length - 3} more
                               </span>
                             </button>
 
                             {openVoterMenu === opt._id && (
-                              <div
-                                style={{
-                                  position: "absolute",
-                                  top: "calc(100% + 0.6rem)",
-                                  left: 0,
-                                  zIndex: 30,
-                                  minWidth: "280px",
-                                  maxWidth: "360px",
-                                  background: "var(--paper)",
-                                  border: "1px solid var(--hairline)",
-                                  borderRadius: "14px",
-                                  boxShadow: "0 28px 60px -28px rgba(0,0,0,0.38)",
-                                  padding: "0.75rem",
-                                }}
-                              >
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.65rem" }}>
+                              <div className="voter-menu">
+                                <div className="voter-menu__head">
                                   <span className="section-label">All voters</span>
                                   <button
                                     type="button"
                                     onClick={() => setOpenVoterMenu(null)}
-                                    style={{
-                                      border: "none",
-                                      background: "transparent",
-                                      color: "var(--ink-3)",
-                                      cursor: "pointer",
-                                      fontSize: "0.75rem",
-                                    }}
+                                    className="voter-menu__close"
                                   >
                                     Close
                                   </button>
                                 </div>
-                                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", maxHeight: "260px", overflowY: "auto", paddingRight: "0.15rem" }}>
-                                  {analyticsOpt.voters.map((voter, voterIndex) => (
-                                    <div
-                                      key={voterIndex}
-                                      style={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        gap: "0.65rem",
-                                        padding: "0.45rem 0.5rem",
-                                        borderRadius: "10px",
-                                        background: "var(--subtle)",
-                                        border: "1px solid var(--hairline)",
-                                      }}
-                                    >
+                                <div className="voter-menu__list">
+                                  {analyticsOpt.voters.map((voter, vi) => (
+                                    <div key={vi} className="voter-menu__row">
                                       {renderVoterAvatar(voter, 28)}
                                       <div style={{ minWidth: 0 }}>
-                                        <div style={{ fontSize: "0.8125rem", fontWeight: 600, color: "var(--ink)", lineHeight: 1.2 }}>
+                                        <div className="voter-menu__name">
                                           {renderVoterName(voter)}
                                         </div>
                                         {voter.email && (
-                                          <div style={{ fontSize: "0.6875rem", color: "var(--ink-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "220px" }}>
+                                          <div className="voter-menu__email">
                                             {voter.email}
                                           </div>
                                         )}
@@ -536,42 +600,36 @@ const PollResults = () => {
                             )}
                           </div>
                         ) : (
-                          <div style={{ marginTop: "0.5rem", display: "flex", flexWrap: "wrap", gap: "0.375rem" }}>
+                          <div className="voter-chips">
                             {analyticsOpt.voters.map((v, vIdx) => (
-                              <div key={vIdx} style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                background: "var(--subtle)",
-                                border: "1px solid var(--hairline)",
-                                borderRadius: "4px",
-                                padding: "0.25rem 0.5rem",
-                                fontSize: "0.6875rem",
-                                color: "var(--ink-2)",
-                                gap: "4px"
-                              }}>
+                              <div key={vIdx} className="voter-chip">
                                 {v.avatar ? (
-                                  <img src={v.avatar} alt="Avatar" style={{ width: 14, height: 14, borderRadius: "50%" }} />
+                                  <img
+                                    src={v.avatar}
+                                    alt=""
+                                    style={{
+                                      width: 14,
+                                      height: 14,
+                                      borderRadius: "50%",
+                                    }}
+                                  />
                                 ) : (
-                                  <div style={{ width: 14, height: 14, borderRadius: "50%", background: "var(--hairline-strong)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "8px", fontWeight: "bold" }}>
+                                  <div className="voter-chip__fallback">
                                     {v.name ? v.name.charAt(0).toUpperCase() : "?"}
                                   </div>
                                 )}
-                                <span>{v.name || (v.email ? v.email.split('@')[0] : 'Unknown')}</span>
+                                <span>{renderVoterName(v)}</span>
                               </div>
                             ))}
                           </div>
-                        )
-                      )}
+                        ))}
                     </div>
                   );
                 })}
               </div>
 
-              {/* Zero state */}
               {totalVotes === 0 && (
-                <p style={{ textAlign: "center", color: "var(--ink-4)", fontSize: "0.8125rem", fontFamily: "var(--font-mono)", marginTop: "1rem" }}>
-                  No responses yet
-                </p>
+                <p className="result-empty">No responses yet</p>
               )}
             </div>
           );

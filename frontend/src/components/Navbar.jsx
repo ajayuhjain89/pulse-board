@@ -1,9 +1,10 @@
-import { Activity, LogOut, Moon, Sun } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { Activity, LogOut, Menu, Moon, Sun, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
+import Modal from "./Modal";
+import Spinner from "./Spinner";
 
 const Navbar = () => {
   const { user, logout } = useAuth();
@@ -11,9 +12,9 @@ const Navbar = () => {
   const navigate = useNavigate();
   const { isDarkMode, toggleTheme } = useTheme();
   const [scrolled, setScrolled] = useState(false);
-  const [showLogoutModal, setShowLogoutModal] = useState(false);
-  const modalRef = useRef(null);
-  const cancelButtonRef = useRef(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [logoutOpen, setLogoutOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -21,183 +22,84 @@ const Navbar = () => {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  // Close the sheet on Escape or click outside.
+  // (Sheet links close the sheet themselves on tap — see onClick below.)
   useEffect(() => {
-    if (showLogoutModal) {
-      const body = document.body;
-      const previousOverflow = body.style.overflow;
-      const previousPaddingRight = body.style.paddingRight;
-      const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
-
-      body.style.overflow = "hidden";
-      if (scrollbarWidth > 0) {
-        body.style.paddingRight = `${scrollbarWidth}px`;
-      }
-
-      const focusTimer = window.requestAnimationFrame(() => {
-        cancelButtonRef.current?.focus();
-      });
-
-      const handleEscape = (e) => {
-        if (e.key === "Escape") {
-          setShowLogoutModal(false);
-          return;
-        }
-
-        if (e.key === "Tab" && modalRef.current) {
-          const focusable = modalRef.current.querySelectorAll(
-            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-          );
-          const focusableElements = Array.from(focusable).filter((el) => !el.disabled);
-          if (focusableElements.length === 0) return;
-
-          const first = focusableElements[0];
-          const last = focusableElements[focusableElements.length - 1];
-          const active = document.activeElement;
-
-          if (e.shiftKey && active === first) {
-            e.preventDefault();
-            last.focus();
-          } else if (!e.shiftKey && active === last) {
-            e.preventDefault();
-            first.focus();
-          }
-        }
-      };
-
-      window.addEventListener("keydown", handleEscape);
-      return () => {
-        window.cancelAnimationFrame(focusTimer);
-        window.removeEventListener("keydown", handleEscape);
-        body.style.overflow = previousOverflow;
-        body.style.paddingRight = previousPaddingRight;
-      };
-    } else {
-      document.body.style.overflow = "";
-      document.body.style.paddingRight = "";
-    }
-    return () => {
-      document.body.style.overflow = "";
-      document.body.style.paddingRight = "";
+    if (!sheetOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") setSheetOpen(false);
     };
-  }, [showLogoutModal]);
-
-  const handleLogout = () => {
-    logout();
-    setShowLogoutModal(false);
-    navigate("/login");
-  };
+    const onPointer = (e) => {
+      if (!e.target.closest(".navbar")) setSheetOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onPointer);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onPointer);
+    };
+  }, [sheetOpen]);
 
   const isActive = (path) => location.pathname === path;
 
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await logout();
+      setLogoutOpen(false);
+      setSheetOpen(false);
+      navigate("/login");
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
+  const ThemeButton = (
+    <button
+      type="button"
+      onClick={toggleTheme}
+      className="navbar__icon-btn"
+      aria-label={isDarkMode ? "Switch to light theme" : "Switch to dark theme"}
+    >
+      {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
+    </button>
+  );
+
   return (
     <>
-    <nav
-      style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 50,
-        transition: "background 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease, backdrop-filter 0.3s ease",
-        background: scrolled
-          ? "color-mix(in srgb, var(--paper) 75%, transparent)"
-          : "transparent",
-        backdropFilter: scrolled ? "blur(18px) saturate(120%)" : "none",
-        WebkitBackdropFilter: scrolled ? "blur(18px) saturate(120%)" : "none",
-        borderBottom: `1px solid ${scrolled ? "var(--hairline)" : "transparent"}`,
-      }}
-    >
-      <div style={{ maxWidth: "80rem", margin: "0 auto", padding: "0 1.5rem" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: "60px" }}>
-          {/* LOGO */}
-          <Link
-            to="/"
-            style={{ display: "flex", alignItems: "center", gap: "0.5rem", textDecoration: "none" }}
-          >
-            <div
-              style={{
-                width: "30px", height: "30px",
-                background: "var(--ink)",
-                borderRadius: "7px",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                flexShrink: 0,
-                transition: "opacity 0.15s",
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.8")}
-              onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
-            >
-              <Activity size={16} style={{ color: "var(--paper)" }} />
-            </div>
-            <span
-              style={{
-                fontFamily: "var(--font-body)",
-                fontWeight: 700,
-                fontSize: "0.9375rem",
-                letterSpacing: "-0.02em",
-                color: "var(--ink)",
-              }}
-            >
-              PulseBoard
+      <nav className="navbar" data-scrolled={scrolled || undefined}>
+        <div className="navbar__inner">
+          <Link to="/" className="navbar__brand">
+            <span className="navbar__logo" aria-hidden="true">
+              <Activity size={16} />
             </span>
+            <span className="navbar__wordmark">PulseBoard</span>
           </Link>
 
-          {/* RIGHT SIDE */}
-          <div style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
-            {/* Theme toggle */}
-            <button
-              onClick={toggleTheme}
-              style={{
-                width: "34px", height: "34px",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                borderRadius: "7px",
-                background: "transparent",
-                border: "none",
-                color: "var(--ink-3)",
-                cursor: "pointer",
-                transition: "background 0.15s, color 0.15s",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "var(--subtle)";
-                e.currentTarget.style.color = "var(--ink)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "transparent";
-                e.currentTarget.style.color = "var(--ink-3)";
-              }}
-              aria-label="Toggle theme"
-            >
-              {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
-            </button>
-
-            {/* Separator */}
-            <div style={{ width: "1px", height: "18px", background: "var(--hairline)", margin: "0 0.375rem" }} />
-
+          {/* DESKTOP actions (hidden ≤768 px) */}
+          <div className="navbar__actions">
+            {ThemeButton}
+            <span className="navbar__separator" aria-hidden="true" />
             {user ? (
               <>
-                <NavLink to="/dashboard" active={isActive("/dashboard")}>Dashboard</NavLink>
-                <NavLink to="/polls/create" active={isActive("/polls/create")}>New Poll</NavLink>
-                <div style={{ width: "1px", height: "18px", background: "var(--hairline)", margin: "0 0.25rem" }} />
+                <Link
+                  to="/dashboard"
+                  className={`navbar__link ${isActive("/dashboard") ? "navbar__link--active" : ""}`}
+                >
+                  Dashboard
+                </Link>
+                <Link
+                  to="/polls/create"
+                  className={`navbar__link ${isActive("/polls/create") ? "navbar__link--active" : ""}`}
+                >
+                  New Poll
+                </Link>
+                <span className="navbar__separator" aria-hidden="true" />
                 <button
-                  onClick={() => setShowLogoutModal(true)}
-                  style={{
-                    width: "34px", height: "34px",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    borderRadius: "7px",
-                    background: "transparent",
-                    border: "none",
-                    color: "var(--ink-3)",
-                    cursor: "pointer",
-                    transition: "background 0.15s, color 0.15s",
-                    position: "relative",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "rgba(192,57,43,0.08)";
-                    e.currentTarget.style.color = "var(--danger)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "transparent";
-                    e.currentTarget.style.color = "var(--ink-3)";
-                  }}
+                  type="button"
+                  onClick={() => setLogoutOpen(true)}
+                  className="navbar__icon-btn navbar__icon-btn--danger"
                   aria-label="Log out"
                   title="Log out"
                 >
@@ -205,146 +107,135 @@ const Navbar = () => {
                 </button>
               </>
             ) : (
-              <div style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                <NavLink to="/login" active={isActive("/login")}>Log in</NavLink>
+              <>
+                <Link
+                  to="/login"
+                  className={`navbar__link ${isActive("/login") ? "navbar__link--active" : ""}`}
+                >
+                  Log in
+                </Link>
+                <Link to="/register" className="navbar__signup">
+                  Sign Up
+                </Link>
+              </>
+            )}
+          </div>
+
+          {/* MOBILE hamburger */}
+          <button
+            type="button"
+            className="navbar__hamburger"
+            onClick={() => setSheetOpen((s) => !s)}
+            aria-label={sheetOpen ? "Close menu" : "Open menu"}
+            aria-expanded={sheetOpen}
+            aria-controls="primary-nav-sheet"
+          >
+            {sheetOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+        </div>
+
+        {/* MOBILE sheet */}
+        <div
+          id="primary-nav-sheet"
+          className="navbar__sheet"
+          data-open={sheetOpen || undefined}
+          role="region"
+          aria-label="Navigation menu"
+        >
+          <div className="navbar__sheet-inner">
+            <div className="navbar__sheet-row">
+              <span className="navbar__sheet-label">Theme</span>
+              {ThemeButton}
+            </div>
+            <div className="navbar__sheet-divider" />
+            {user ? (
+              <>
+                <Link
+                  to="/dashboard"
+                  className="navbar__sheet-link"
+                  onClick={() => setSheetOpen(false)}
+                >
+                  Dashboard
+                </Link>
+                <Link
+                  to="/polls/create"
+                  className="navbar__sheet-link"
+                  onClick={() => setSheetOpen(false)}
+                >
+                  New Poll
+                </Link>
+                <div className="navbar__sheet-divider" />
+                <button
+                  type="button"
+                  className="navbar__sheet-link navbar__sheet-link--danger"
+                  onClick={() => {
+                    setSheetOpen(false);
+                    setLogoutOpen(true);
+                  }}
+                >
+                  <LogOut size={15} /> Log out
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  to="/login"
+                  className="navbar__sheet-link"
+                  onClick={() => setSheetOpen(false)}
+                >
+                  Log in
+                </Link>
                 <Link
                   to="/register"
-                  style={{
-                    display: "inline-flex", alignItems: "center",
-                    background: "var(--ink)", color: "var(--paper)",
-                    border: "1px solid var(--ink)",
-                    borderRadius: "6px",
-                    padding: "0.375rem 0.875rem",
-                    fontFamily: "var(--font-body)",
-                    fontSize: "0.8125rem",
-                    fontWeight: 600,
-                    letterSpacing: "0.01em",
-                    transition: "opacity 0.15s",
-                    textDecoration: "none",
-                    marginLeft: "0.25rem",
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.82")}
-                  onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                  className="navbar__sheet-link navbar__sheet-link--primary"
+                  onClick={() => setSheetOpen(false)}
                 >
                   Sign Up
                 </Link>
-              </div>
+              </>
             )}
           </div>
         </div>
-      </div>
+      </nav>
 
-    </nav>
-    {showLogoutModal && typeof document !== "undefined" && createPortal(
-      <div
-        className="fixed inset-0 z-100 flex items-center justify-center p-4 animate-fade-in"
-        style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(4px)" }}
-        onClick={(e) => { if (e.target === e.currentTarget) setShowLogoutModal(false); }}
-      >
-        <div
-          ref={modalRef}
-          className="scale-in"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Sign out confirmation"
-          style={{
-            background: "var(--paper)",
-            borderRadius: "12px",
-            border: "1px solid var(--hairline)",
-            maxWidth: "360px",
-            width: "100%",
-            overflow: "hidden",
-          }}
-        >
-          <div style={{ padding: "1.75rem" }}>
-            <div
-              style={{
-                width: "44px", height: "44px", borderRadius: "50%",
-                background: "rgba(192,57,43,0.1)",
-                display: "flex", alignItems: "center", justifyItems: "center", justifyContent: "center",
-                marginBottom: "1.25rem",
-              }}
+      <Modal
+        open={logoutOpen}
+        onClose={() => !loggingOut && setLogoutOpen(false)}
+        title="Sign out?"
+        description="Are you sure you want to sign out of your account? You will need to log back in to access your polls and dashboard."
+        icon={<LogOut size={20} />}
+        tone="danger"
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={() => setLogoutOpen(false)}
+              className="btn-secondary"
+              style={{ padding: "0.5rem 1rem" }}
+              disabled={loggingOut}
             >
-              <LogOut style={{ color: "var(--danger)", width: "20px", height: "20px" }} />
-            </div>
-            <h3
-              style={{
-                fontSize: "1.0625rem", fontWeight: 600, color: "var(--ink)",
-                marginBottom: "0.625rem", letterSpacing: "-0.01em",
-              }}
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="btn-danger"
+              data-destructive
+              disabled={loggingOut}
             >
-              Sign out?
-            </h3>
-            <p style={{ fontSize: "0.875rem", color: "var(--ink-2)", marginBottom: "1.75rem", lineHeight: 1.5 }}>
-              Are you sure you want to sign out of your account? You will need to log back in to access your polls and dashboard.
-            </p>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem" }}>
-              <button
-                ref={cancelButtonRef}
-                onClick={() => setShowLogoutModal(false)}
-                className="btn-secondary"
-                style={{ padding: "0.5rem 1rem", fontSize: "0.875rem" }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleLogout}
-                style={{
-                  padding: "0.5rem 1rem",
-                  background: "var(--danger)",
-                  color: "#fff",
-                  borderRadius: "6px",
-                  fontWeight: 500,
-                  fontSize: "0.875rem",
-                  border: "none",
-                  cursor: "pointer",
-                  transition: "opacity 0.15s",
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
-                onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
-              >
-                Sign Out
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>,
-      document.body
-    )}
+              {loggingOut ? (
+                <>
+                  <Spinner size={14} /> Signing out…
+                </>
+              ) : (
+                "Sign Out"
+              )}
+            </button>
+          </>
+        }
+      />
     </>
   );
 };
-
-/* Compact nav link */
-const NavLink = ({ to, active, children }) => (
-  <Link
-    to={to}
-    style={{
-      fontSize: "0.8125rem",
-      fontWeight: active ? 600 : 500,
-      color: active ? "var(--ink)" : "var(--ink-3)",
-      textDecoration: "none",
-      padding: "0.375rem 0.625rem",
-      borderRadius: "6px",
-      transition: "background 0.12s, color 0.12s",
-      display: "inline-flex", alignItems: "center",
-      background: active ? "var(--subtle)" : "transparent",
-    }}
-    onMouseEnter={(e) => {
-      if (!active) {
-        e.currentTarget.style.background = "var(--subtle)";
-        e.currentTarget.style.color = "var(--ink)";
-      }
-    }}
-    onMouseLeave={(e) => {
-      if (!active) {
-        e.currentTarget.style.background = "transparent";
-        e.currentTarget.style.color = "var(--ink-3)";
-      }
-    }}
-  >
-    {children}
-  </Link>
-);
 
 export default Navbar;

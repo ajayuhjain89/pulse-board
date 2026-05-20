@@ -1,50 +1,54 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import Spinner from "../components/Spinner";
 import { useAuth } from "../context/AuthContext";
-import CreatePoll from "./CreatePoll";
-import Dashboard from "./Dashboard";
+// Cold-start paths stay in the initial chunk.
 import ForgotPassword from "./ForgotPassword";
 import Home from "./Home";
 import Login from "./Login";
-import PollResults from "./PollResults";
-import PollView from "./PollView";
+import NotFound from "./NotFound";
 import Register from "./Register";
+
+// Heavier / authenticated routes are split into their own chunks so the
+// landing + auth pages load fast.
+const Dashboard = lazy(() => import("./Dashboard"));
+const CreatePoll = lazy(() => import("./CreatePoll"));
+const PollView = lazy(() => import("./PollView"));
+const PollResults = lazy(() => import("./PollResults"));
+const Terms = lazy(() => import("./Terms"));
+const Privacy = lazy(() => import("./Privacy"));
+
+const AuthLoading = () => (
+  <div className="route-loading">
+    <Spinner size={24} />
+  </div>
+);
 
 const ProtectedRoute = ({ children }) => {
   const { user, authReady } = useAuth();
+  const location = useLocation();
 
-  // While auth is initializing, show loading spinner
-  if (!authReady) {
-    return (
-      <div style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        minHeight: "60vh",
-      }}>
-        <div style={{
-          width: "20px", height: "20px",
-          border: "2px solid var(--hairline)",
-          borderTopColor: "var(--ink)",
-          borderRadius: "50%",
-          animation: "spin 0.75s linear infinite",
-        }} />
-      </div>
-    );
+  if (!authReady) return <AuthLoading />;
+
+  if (!user) {
+    const next = encodeURIComponent(location.pathname + location.search);
+    return <Navigate to={`/login?next=${next}`} replace />;
   }
-
-  // Auth is ready - check if user is authenticated
-  return user ? children : <Navigate to="/login" />;
+  return children;
 };
 
 const Pages = () => {
   const location = useLocation();
   return (
     <div key={location.pathname} className="page-enter">
-      <Routes location={location}>
+      <Suspense fallback={<AuthLoading />}>
+        <Routes location={location}>
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/terms" element={<Terms />} />
+        <Route path="/privacy" element={<Privacy />} />
         <Route
           path="/dashboard"
           element={
@@ -61,9 +65,19 @@ const Pages = () => {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/polls/:id/edit"
+          element={
+            <ProtectedRoute>
+              <CreatePoll />
+            </ProtectedRoute>
+          }
+        />
         <Route path="/polls/:id" element={<PollView />} />
         <Route path="/polls/:id/results" element={<PollResults />} />
-      </Routes>
+        <Route path="*" element={<NotFound />} />
+        </Routes>
+      </Suspense>
     </div>
   );
 };

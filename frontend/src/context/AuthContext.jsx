@@ -1,108 +1,112 @@
 import { googleLogout } from "@react-oauth/google";
-import axios from "axios";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
-
-axios.defaults.baseURL = `${import.meta.env.VITE_API_URL}/api`;
+import { createContext, useContext, useEffect, useState } from "react";
+import {
+  apiClient,
+  clearAuthTokens,
+  refreshSession,
+  registerSessionHandlers,
+  setAuthTokens,
+} from "../lib/apiClient";
 
 const AuthContext = createContext();
 
-// Synchronously restore token before any component mounts
-const savedUserInit = localStorage.getItem("user");
-const initialUser = savedUserInit ? JSON.parse(savedUserInit) : null;
-if (initialUser?.token) {
-  axios.defaults.headers.common["Authorization"] = `Bearer ${initialUser.token}`;
-}
-
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(initialUser);
+  const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
-  const interceptorRef = useRef(null);
 
-  // Mark auth as ready once component is mounted and token is restored
+  // React to refreshes / session loss triggered by the axios interceptor.
   useEffect(() => {
-    setAuthReady(true);
+    registerSessionHandlers({
+      onRefreshed: (data) => {
+        if (data?.user) setUser(data.user);
+      },
+      onLost: () => setUser(null),
+    });
   }, []);
 
-  // Set up global 401 interceptor once
+  // Cross-tab logout: when one tab logs out it writes a key; sibling tabs hear
+  // the storage event and clear their in-memory token + user so no tab keeps a
+  // zombie session. (Only a timestamp is stored — never a token.)
   useEffect(() => {
-    interceptorRef.current = axios.interceptors.response.use(
-      (response) => response,
-      (error) => {
-        if (error.response?.status === 401) {
-          googleLogout();
-          setUser(null);
-          localStorage.removeItem("user");
-          delete axios.defaults.headers.common["Authorization"];
-          const path = window.location.pathname;
-          if (
-            path !== "/login" &&
-            path !== "/register" &&
-            path !== "/forgot-password"
-          ) {
-            window.location.href = "/login";
-          }
-        }
-        return Promise.reject(error);
+    const onStorage = (e) => {
+      if (e.key === "pulseboard:logout") {
+        clearAuthTokens();
+        setUser(null);
       }
-    );
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
+  // On boot the access token is gone (memory-only). Ask the server to mint a
+  // new one from the httpOnly refresh cookie.
+  useEffect(() => {
+    let cancelled = false;
+    refreshSession()
+      .then((data) => {
+        if (!cancelled) setUser(data.user);
+      })
+      .catch(() => {
+        if (!cancelled) setUser(null);
+      })
+      .finally(() => {
+        if (!cancelled) setAuthReady(true);
+      });
     return () => {
-      if (interceptorRef.current !== null) {
-        axios.interceptors.response.eject(interceptorRef.current);
-      }
+      cancelled = true;
     };
   }, []);
 
-  useEffect(() => {
-    if (user?.token) {
-      axios.defaults.headers.common["Authorization"] = `Bearer ${user.token}`;
-    } else {
-      delete axios.defaults.headers.common["Authorization"];
-    }
-  }, [user]);
-
   const login = async (email, password) => {
-    const { data } = await axios.post("/auth/login", { email, password });
-    setUser(data);
-    localStorage.setItem("user", JSON.stringify(data));
+    const { data } = await apiClient.post("/auth/login", { email, password });
+    setAuthTokens(data);
+    setUser(data.user);
   };
 
   const verifyOtp = async (email, otp) => {
-    const { data } = await axios.post("/auth/verify-otp", { email, otp });
-    setUser(data);
-    localStorage.setItem("user", JSON.stringify(data));
-  };
-
-  const forgotPassword = async (email) => {
-    return await axios.post("/auth/forgot-password", { email });
-  };
-
-  const resetPassword = async (email, otp, newPassword) => {
-    return await axios.post("/auth/reset-password", { email, otp, newPassword });
-  };
-
-  const loginWithGoogle = async (token) => {
-    const { data } = await axios.post("/auth/google", { token });
-    setUser(data);
-    localStorage.setItem("user", JSON.stringify(data));
+    const { data } = await apiClient.post("/auth/verify-otp", { email, otp });
+    setAuthTokens(data);
+    setUser(data.user);
   };
 
   const register = async (name, email, password) => {
-    const { data } = await axios.post("/auth/register", {
+    const { data } = await apiClient.post("/auth/register", {
       name,
       email,
       password,
     });
-    if (data.requiresOTP) return data;
-    setUser(data);
-    localStorage.setItem("user", JSON.stringify(data));
+    return data; // { message, requiresOTP, email }
   };
 
-  const logout = () => {
+  const resendOtp = (email) => apiClient.post("/auth/resend-otp", { email });
+
+  const forgotPassword = (email) =>
+    apiClient.post("/auth/forgot-password", { email });
+
+  const resetPassword = (email, otp, newPassword) =>
+    apiClient.post("/auth/reset-password", { email, otp, newPassword });
+
+  const loginWithGoogle = async (code) => {
+    const { data } = await apiClient.post("/auth/google", { code });
+    setAuthTokens(data);
+    setUser(data.user);
+  };
+
+  const logout = async () => {
+    try {
+      await apiClient.post("/auth/logout");
+    } catch {
+      // Ignore — clearing local state below is what matters.
+    }
     googleLogout();
+    clearAuthTokens();
     setUser(null);
-    localStorage.removeItem("user");
-    delete axios.defaults.headers.common["Authorization"];
+    // Signal sibling tabs to drop their in-memory session too.
+    try {
+      localStorage.setItem("pulseboard:logout", String(Date.now()));
+    } catch {
+      // localStorage unavailable (private mode quota) — non-fatal.
+    }
   };
 
   return (
@@ -112,10 +116,11 @@ export const AuthProvider = ({ children }) => {
         authReady,
         login,
         verifyOtp,
+        register,
+        resendOtp,
         forgotPassword,
         resetPassword,
         loginWithGoogle,
-        register,
         logout,
       }}
     >

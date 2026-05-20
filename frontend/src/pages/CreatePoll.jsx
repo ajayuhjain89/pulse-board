@@ -1,103 +1,230 @@
-import axios from "axios";
 import { Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
+import { apiClient } from "../lib/apiClient";
+
+const MAX_QUESTIONS = 50;
+const MAX_OPTIONS = 20;
+
+// Convert a Date / ISO string to the value a datetime-local input expects
+// (local time, "YYYY-MM-DDTHH:mm").
+const toDatetimeLocal = (date) => {
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return "";
+  const tzOffsetMs = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - tzOffsetMs).toISOString().slice(0, 16);
+};
+
+const emptyQuestion = () => ({
+  text: "",
+  isOptional: false,
+  options: [{ text: "" }, { text: "" }],
+});
+
+// Computed once at module load — a soft lower bound for the date picker.
+// The authoritative future-date check lives in validate() and on the server.
+const MIN_DATETIME = toDatetimeLocal(new Date(Date.now() + 60 * 1000));
 
 const CreatePoll = () => {
   const navigate = useNavigate();
+  const { id } = useParams();
+  const isEditMode = Boolean(id);
+
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [expiresAt, setExpiresAt] = useState("");
-  const [questions, setQuestions] = useState([
-    { text: "", isOptional: false, options: [{ text: "" }, { text: "" }] },
-  ]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [questions, setQuestions] = useState([emptyQuestion()]);
+  const [submittingAs, setSubmittingAs] = useState(null); // 'draft' | 'live'
+  const [loading, setLoading] = useState(isEditMode);
 
-  const addQuestion = () =>
-    setQuestions([...questions, { text: "", isOptional: false, options: [{ text: "" }, { text: "" }] }]);
+  useEffect(() => {
+    if (!isEditMode) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await apiClient.get(`/polls/${id}`);
+        if (cancelled) return;
+        const poll = data.poll;
+        setTitle(poll.title || "");
+        setDescription(poll.description || "");
+        setIsAnonymous(Boolean(poll.isAnonymous));
+        setExpiresAt(toDatetimeLocal(poll.expiresAt));
+        setQuestions(
+          (poll.questions || []).map((q) => ({
+            text: q.text,
+            isOptional: Boolean(q.isOptional),
+            options: q.options.map((o) => ({ text: o.text })),
+          })),
+        );
+      } catch (error) {
+        toast.error(
+          error.response?.data?.message || "Failed to load poll for editing",
+        );
+        navigate("/dashboard");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, isEditMode, navigate]);
+
+  const addQuestion = () => {
+    if (questions.length >= MAX_QUESTIONS) {
+      return toast.error(`A poll can have at most ${MAX_QUESTIONS} questions.`);
+    }
+    setQuestions([...questions, emptyQuestion()]);
+  };
 
   const removeQuestion = (qIndex) => {
-    if (questions.length === 1) return toast.error("Minimum one question is required.");
+    if (questions.length === 1) return;
     setQuestions(questions.filter((_, i) => i !== qIndex));
   };
 
   const updateQuestion = (qIndex, field, value) => {
     const updated = [...questions];
-    updated[qIndex][field] = value;
+    updated[qIndex] = { ...updated[qIndex], [field]: value };
     setQuestions(updated);
   };
 
   const addOption = (qIndex) => {
     const updated = [...questions];
-    updated[qIndex].options.push({ text: "" });
+    if (updated[qIndex].options.length >= MAX_OPTIONS) {
+      return toast.error(`A question can have at most ${MAX_OPTIONS} options.`);
+    }
+    updated[qIndex] = {
+      ...updated[qIndex],
+      options: [...updated[qIndex].options, { text: "" }],
+    };
     setQuestions(updated);
   };
 
   const removeOption = (qIndex, oIndex) => {
     const updated = [...questions];
-    if (updated[qIndex].options.length <= 2) return toast.error("Minimum 2 options required.");
-    updated[qIndex].options = updated[qIndex].options.filter((_, i) => i !== oIndex);
+    if (updated[qIndex].options.length <= 2) return;
+    updated[qIndex] = {
+      ...updated[qIndex],
+      options: updated[qIndex].options.filter((_, i) => i !== oIndex),
+    };
     setQuestions(updated);
   };
 
   const updateOption = (qIndex, oIndex, value) => {
     const updated = [...questions];
-    updated[qIndex].options[oIndex].text = value;
+    const options = [...updated[qIndex].options];
+    options[oIndex] = { text: value };
+    updated[qIndex] = { ...updated[qIndex], options };
     setQuestions(updated);
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (isSubmitting) return;
-    if (!expiresAt) return toast.error("Please set an expiry date.");
-    setIsSubmitting(true);
+  const validate = () => {
+    if (!title.trim()) {
+      toast.error("Please add a poll title.");
+      return false;
+    }
+    if (!expiresAt) {
+      toast.error("Please set an expiry date.");
+      return false;
+    }
+    if (new Date(expiresAt).getTime() <= Date.now()) {
+      toast.error("Expiry date must be in the future.");
+      return false;
+    }
+    for (let i = 0; i < questions.length; i += 1) {
+      const q = questions[i];
+      if (!q.text.trim()) {
+        toast.error(`Question ${i + 1} needs text.`);
+        return false;
+      }
+      if (q.options.some((o) => !o.text.trim())) {
+        toast.error(`Question ${i + 1} has an empty option.`);
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const submit = async (status) => {
+    if (submittingAs) return;
+    if (!validate()) return;
+
+    setSubmittingAs(status);
+    const payload = {
+      title: title.trim(),
+      description: description.trim(),
+      isAnonymous,
+      status,
+      expiresAt: new Date(expiresAt).toISOString(),
+      questions,
+    };
+
     try {
-      await axios.post("/polls", {
-        title, description, isAnonymous,
-        expiresAt: new Date(expiresAt).toISOString(),
-        questions,
-      });
-      toast.success("Poll created!");
+      if (isEditMode) {
+        await apiClient.put(`/polls/${id}`, payload);
+        toast.success("Poll updated");
+      } else {
+        await apiClient.post("/polls", payload);
+        toast.success(status === "draft" ? "Draft saved" : "Poll created");
+      }
       navigate("/dashboard");
-    } catch {
-      toast.error("Failed to create poll");
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to save poll");
     } finally {
-      setIsSubmitting(false);
+      setSubmittingAs(null);
     }
   };
 
+  if (loading) {
+    return (
+      <div className="max-w-2xl mx-auto py-14">
+        <div className="skeleton-card" style={{ marginBottom: "1.25rem" }}>
+          <div className="skeleton-line" style={{ height: 28, width: "50%" }} />
+          <div
+            className="skeleton-line short"
+            style={{ height: 12, width: "70%", marginTop: 10 }}
+          />
+        </div>
+        {Array.from({ length: 2 }).map((_, i) => (
+          <div key={i} className="skeleton-card" style={{ marginBottom: "1rem" }}>
+            <div className="skeleton-line" style={{ height: 14, width: "60%" }} />
+            <div
+              className="skeleton-line short"
+              style={{ height: 12, width: "40%", marginTop: 10 }}
+            />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-2xl mx-auto py-14 animate-fade-in">
-      {/* PAGE TITLE */}
       <div style={{ marginBottom: "3rem" }}>
-        <h1
-          style={{
-            fontFamily: "var(--font-display)",
-            fontStyle: "italic",
-            fontSize: "clamp(2.25rem, 5vw, 3.5rem)",
-            letterSpacing: "-0.025em",
-            lineHeight: 1,
-            color: "var(--ink)",
-            marginBottom: "0.75rem",
-          }}
-        >
-          Create a Poll
+        <h1 className="page-title-serif">
+          {isEditMode ? "Edit Poll" : "Create a Poll"}
         </h1>
         <p style={{ fontSize: "0.9375rem", color: "var(--ink-3)" }}>
           Configure your poll, add questions, and share instantly.
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "0" }}>
-        {/* ── SECTION 1: DETAILS ── */}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit("live");
+        }}
+        style={{ display: "flex", flexDirection: "column", gap: "0" }}
+      >
         <FormSection number="01" label="Details">
           <div style={{ display: "flex", flexDirection: "column", gap: "1.125rem" }}>
             <Field label="Poll Title" required>
               <input
                 type="text"
                 required
+                maxLength={200}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="What feedback do you need?"
@@ -107,6 +234,7 @@ const CreatePoll = () => {
             <Field label="Description" hint="Optional">
               <textarea
                 value={description}
+                maxLength={2000}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Add context or instructions for your audience…"
                 style={{ width: "100%", resize: "none", height: "88px" }}
@@ -117,48 +245,23 @@ const CreatePoll = () => {
 
         <SectionDivider />
 
-        {/* ── SECTION 2: CONFIGURATION ── */}
         <FormSection number="02" label="Configuration">
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem" }}>
+          <div className="create-config-grid">
             <Field label="Expiry Date & Time" required>
               <input
                 type="datetime-local"
                 required
+                min={MIN_DATETIME}
                 value={expiresAt}
                 onChange={(e) => setExpiresAt(e.target.value)}
                 style={{ width: "100%", fontSize: "0.875rem" }}
               />
             </Field>
             <div>
-              <p
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  fontSize: "10px",
-                  letterSpacing: "0.07em",
-                  textTransform: "uppercase",
-                  color: "var(--ink-3)",
-                  marginBottom: "0.625rem",
-                }}
-              >
+              <p className="field-label" style={{ marginBottom: "0.625rem" }}>
                 Anonymous Responses
               </p>
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.875rem",
-                  cursor: "pointer",
-                  padding: "0.875rem 1rem",
-                  background: "var(--surface)",
-                  border: "1px solid var(--hairline)",
-                  borderRadius: "6px",
-                  transition: "border-color 0.15s",
-                  userSelect: "none",
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--hairline-strong)")}
-                onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--hairline)")}
-              >
-                {/* Toggle */}
+              <label className="toggle-row">
                 <div style={{ position: "relative", flexShrink: 0 }}>
                   <input
                     type="checkbox"
@@ -168,8 +271,12 @@ const CreatePoll = () => {
                   />
                   <div
                     style={{
-                      width: "38px", height: "22px", borderRadius: "99px",
-                      background: isAnonymous ? "var(--ink)" : "var(--hairline-strong)",
+                      width: "38px",
+                      height: "22px",
+                      borderRadius: "99px",
+                      background: isAnonymous
+                        ? "var(--ink)"
+                        : "var(--hairline-strong)",
                       transition: "background 0.2s",
                       position: "relative",
                     }}
@@ -179,7 +286,8 @@ const CreatePoll = () => {
                         position: "absolute",
                         top: "3px",
                         left: isAnonymous ? "19px" : "3px",
-                        width: "16px", height: "16px",
+                        width: "16px",
+                        height: "16px",
                         borderRadius: "50%",
                         background: "var(--surface)",
                         transition: "left 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
@@ -189,11 +297,26 @@ const CreatePoll = () => {
                   </div>
                 </div>
                 <div>
-                  <div style={{ fontSize: "0.875rem", fontWeight: 500, color: "var(--ink)", lineHeight: 1.2 }}>
+                  <div
+                    style={{
+                      fontSize: "0.875rem",
+                      fontWeight: 500,
+                      color: "var(--ink)",
+                      lineHeight: 1.2,
+                    }}
+                  >
                     {isAnonymous ? "Enabled" : "Disabled"}
                   </div>
-                  <div style={{ fontSize: "0.75rem", color: "var(--ink-3)", marginTop: "2px" }}>
-                    {isAnonymous ? "Voter identities are hidden" : "Voters must be signed in"}
+                  <div
+                    style={{
+                      fontSize: "0.75rem",
+                      color: "var(--ink-3)",
+                      marginTop: "2px",
+                    }}
+                  >
+                    {isAnonymous
+                      ? "Voter identities are hidden"
+                      : "Voters must be signed in"}
                   </div>
                 </div>
               </label>
@@ -203,23 +326,11 @@ const CreatePoll = () => {
 
         <SectionDivider />
 
-        {/* ── SECTION 3: QUESTIONS ── */}
         <FormSection
           number="03"
           label="Questions"
           right={
-            <span
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: "11px",
-                letterSpacing: "0.06em",
-                color: "var(--ink-4)",
-                background: "var(--subtle)",
-                padding: "3px 10px",
-                borderRadius: "99px",
-                border: "1px solid var(--hairline)",
-              }}
-            >
+            <span className="pill-count">
               {questions.length} {questions.length === 1 ? "item" : "items"}
             </span>
           }
@@ -228,87 +339,66 @@ const CreatePoll = () => {
             {questions.map((q, qIndex) => (
               <div key={qIndex} className="question-card">
                 <div style={{ padding: "1.25rem 1.25rem 1.25rem 1.75rem" }}>
-                  {/* Question text + index */}
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: "0.875rem", marginBottom: "1rem" }}>
-                    <span
-                      style={{
-                        fontFamily: "var(--font-display)",
-                        fontStyle: "italic",
-                        fontSize: "1.5rem",
-                        lineHeight: 1,
-                        color: "var(--ink-4)",
-                        flexShrink: 0,
-                        marginTop: "4px",
-                      }}
-                    >
-                      {qIndex + 1}.
-                    </span>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: "0.875rem",
+                      marginBottom: "1rem",
+                    }}
+                  >
+                    <span className="question-card__index">{qIndex + 1}.</span>
                     <div style={{ flex: 1 }}>
                       <input
                         type="text"
                         required
+                        maxLength={500}
                         value={q.text}
-                        onChange={(e) => updateQuestion(qIndex, "text", e.target.value)}
+                        onChange={(e) =>
+                          updateQuestion(qIndex, "text", e.target.value)
+                        }
                         placeholder="Type your question…"
-                        style={{
-                          width: "100%",
-                          background: "transparent",
-                          border: "none",
-                          borderBottom: "1px solid var(--hairline)",
-                          borderRadius: "0",
-                          padding: "0 0 8px 0",
-                          fontSize: "0.9375rem",
-                          fontWeight: 500,
-                          color: "var(--ink)",
-                          outline: "none",
-                          boxShadow: "none",
-                          transition: "border-color 0.15s",
-                        }}
-                        onFocus={(e) => (e.target.style.borderColor = "var(--ink)")}
-                        onBlur={(e) => (e.target.style.borderColor = "var(--hairline)")}
+                        aria-label={`Question ${qIndex + 1} text`}
+                        className="question-card__text-input"
                       />
                     </div>
-                    {/* Remove question */}
                     <button
                       type="button"
                       onClick={() => removeQuestion(qIndex)}
-                      style={{
-                        background: "none", border: "none", cursor: "pointer",
-                        padding: "4px", color: "var(--ink-4)", borderRadius: "4px",
-                        flexShrink: 0, transition: "color 0.15s",
-                        display: "flex", alignItems: "center",
-                      }}
-                      onMouseEnter={(e) => (e.currentTarget.style.color = "var(--danger)")}
-                      onMouseLeave={(e) => (e.currentTarget.style.color = "var(--ink-4)")}
+                      disabled={questions.length === 1}
+                      className="icon-btn-danger"
                       aria-label="Remove question"
                     >
                       <Trash2 size={15} />
                     </button>
                   </div>
 
-                  {/* Optional toggle */}
-                  <label
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.5rem",
-                      cursor: "pointer",
-                      marginBottom: "1rem",
-                      paddingLeft: "2.25rem",
-                    }}
-                  >
+                  <label className="question-card__optional">
                     <div
                       style={{
-                        width: "14px", height: "14px", borderRadius: "3px",
-                        border: `1.5px solid ${q.isOptional ? "var(--ink)" : "var(--hairline-strong)"}`,
+                        width: "14px",
+                        height: "14px",
+                        borderRadius: "3px",
+                        border: `1.5px solid ${
+                          q.isOptional ? "var(--ink)" : "var(--hairline-strong)"
+                        }`,
                         background: q.isOptional ? "var(--ink)" : "transparent",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        flexShrink: 0, transition: "all 0.15s",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
+                        transition: "all 0.15s",
                       }}
                     >
                       {q.isOptional && (
                         <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-                          <path d="M1.5 4L3.5 6L6.5 2" stroke="var(--paper)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                          <path
+                            d="M1.5 4L3.5 6L6.5 2"
+                            stroke="var(--paper)"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
                         </svg>
                       )}
                     </div>
@@ -316,24 +406,43 @@ const CreatePoll = () => {
                       type="checkbox"
                       className="sr-only"
                       checked={q.isOptional}
-                      onChange={(e) => updateQuestion(qIndex, "isOptional", e.target.checked)}
+                      onChange={(e) =>
+                        updateQuestion(qIndex, "isOptional", e.target.checked)
+                      }
                     />
-                    <span style={{ fontSize: "0.8125rem", color: "var(--ink-3)", fontWeight: 500 }}>
+                    <span
+                      style={{
+                        fontSize: "0.8125rem",
+                        color: "var(--ink-3)",
+                        fontWeight: 500,
+                      }}
+                    >
                       Mark as optional
                     </span>
                   </label>
 
-                  {/* OPTIONS */}
-                  <div style={{ paddingLeft: "2.25rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                  <div
+                    style={{
+                      paddingLeft: "2.25rem",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.5rem",
+                    }}
+                  >
                     {q.options.map((opt, oIndex) => (
                       <div
                         key={oIndex}
-                        style={{ display: "flex", alignItems: "center", gap: "0.625rem" }}
-                        className="group/opt"
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.625rem",
+                        }}
                       >
                         <div
                           style={{
-                            width: "12px", height: "12px", borderRadius: "50%",
+                            width: "12px",
+                            height: "12px",
+                            borderRadius: "50%",
                             border: "1.5px solid var(--hairline-strong)",
                             flexShrink: 0,
                           }}
@@ -341,51 +450,31 @@ const CreatePoll = () => {
                         <input
                           type="text"
                           required
+                          maxLength={200}
                           value={opt.text}
-                          onChange={(e) => updateOption(qIndex, oIndex, e.target.value)}
+                          onChange={(e) =>
+                            updateOption(qIndex, oIndex, e.target.value)
+                          }
                           placeholder={`Option ${oIndex + 1}`}
-                          style={{
-                            flex: 1,
-                            fontSize: "0.875rem",
-                            padding: "0.5rem 0.75rem",
-                            background: "var(--paper)",
-                            border: "1px solid var(--hairline)",
-                            borderRadius: "5px",
-                            transition: "border-color 0.12s",
-                          }}
+                          aria-label={`Option ${oIndex + 1} of question ${qIndex + 1}`}
+                          className="option-input"
                         />
                         <button
                           type="button"
                           onClick={() => removeOption(qIndex, oIndex)}
-                          style={{
-                            background: "none", border: "none", cursor: "pointer",
-                            padding: "4px", color: "var(--ink-4)", borderRadius: "3px",
-                            display: "flex", alignItems: "center",
-                            opacity: q.options.length <= 2 ? 0.25 : 1,
-                            pointerEvents: q.options.length <= 2 ? "none" : "auto",
-                            transition: "color 0.15s",
-                          }}
-                          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--danger)")}
-                          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--ink-4)")}
+                          disabled={q.options.length <= 2}
+                          className="icon-btn-danger"
+                          aria-label="Remove option"
                         >
                           <Trash2 size={13} />
                         </button>
                       </div>
                     ))}
 
-                    {/* Add option */}
                     <button
                       type="button"
                       onClick={() => addOption(qIndex)}
-                      style={{
-                        display: "inline-flex", alignItems: "center", gap: "0.375rem",
-                        background: "none", border: "none", cursor: "pointer",
-                        color: "var(--ink-3)", fontSize: "0.8125rem", fontWeight: 500,
-                        fontFamily: "var(--font-body)", padding: "0.375rem 0",
-                        marginTop: "0.25rem", transition: "color 0.12s",
-                      }}
-                      onMouseEnter={(e) => (e.currentTarget.style.color = "var(--ink)")}
-                      onMouseLeave={(e) => (e.currentTarget.style.color = "var(--ink-3)")}
+                      className="inline-add-btn"
                     >
                       <Plus size={13} /> Add choice
                     </button>
@@ -394,76 +483,40 @@ const CreatePoll = () => {
               </div>
             ))}
 
-            {/* Add question */}
-            <button
-              type="button"
-              onClick={addQuestion}
-              style={{
-                width: "100%",
-                padding: "1.25rem",
-                background: "var(--subtle)",
-                border: "1.5px dashed var(--hairline-strong)",
-                borderRadius: "10px",
-                color: "var(--ink-3)",
-                fontSize: "0.875rem",
-                fontWeight: 500,
-                fontFamily: "var(--font-body)",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "0.5rem",
-                transition: "border-color 0.15s, color 0.15s, background 0.15s",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = "var(--ink-3)";
-                e.currentTarget.style.color = "var(--ink)";
-                e.currentTarget.style.background = "var(--hairline)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = "var(--hairline-strong)";
-                e.currentTarget.style.color = "var(--ink-3)";
-                e.currentTarget.style.background = "var(--subtle)";
-              }}
-            >
+            <button type="button" onClick={addQuestion} className="add-question-btn">
               <Plus size={15} /> Add Question
             </button>
           </div>
         </FormSection>
 
-        {/* ACTIONS */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            alignItems: "center",
-            gap: "0.75rem",
-            paddingTop: "2.5rem",
-            borderTop: "1px solid var(--hairline)",
-            marginTop: "2rem",
-          }}
-        >
-          <button type="button" onClick={() => navigate("/dashboard")} className="btn-ghost text-sm px-5">
+        <div className="create-actions">
+          <button
+            type="button"
+            onClick={() => navigate("/dashboard")}
+            className="btn-ghost text-sm px-5"
+          >
             Cancel
           </button>
           <button
-            type="submit"
-            disabled={isSubmitting}
-            style={{
-              display: "inline-flex", alignItems: "center", gap: "0.375rem",
-              background: "var(--ink)", color: "var(--paper)",
-              border: "1px solid var(--ink)", borderRadius: "6px",
-              padding: "0.5625rem 1.5rem",
-              fontFamily: "var(--font-body)", fontSize: "0.875rem", fontWeight: 600,
-              cursor: isSubmitting ? "not-allowed" : "pointer",
-              opacity: isSubmitting ? 0.65 : 1,
-              transition: "opacity 0.15s",
-              letterSpacing: "0.01em",
-            }}
-            onMouseEnter={(e) => { if (!isSubmitting) e.currentTarget.style.opacity = "0.85"; }}
-            onMouseLeave={(e) => { if (!isSubmitting) e.currentTarget.style.opacity = "1"; }}
+            type="button"
+            onClick={() => submit("draft")}
+            disabled={Boolean(submittingAs)}
+            className="btn-secondary btn-loadable"
+            data-loading={submittingAs === "draft"}
           >
-            {isSubmitting ? "Creating…" : "Create Poll →"}
+            {submittingAs === "draft" ? "Saving…" : "Save as Draft"}
+          </button>
+          <button
+            type="submit"
+            disabled={Boolean(submittingAs)}
+            className="btn-primary btn-loadable"
+            data-loading={submittingAs === "live"}
+          >
+            {submittingAs === "live"
+              ? "Saving…"
+              : isEditMode
+                ? "Save & Publish"
+                : "Publish Poll"}
           </button>
         </div>
       </form>
@@ -471,37 +524,15 @@ const CreatePoll = () => {
   );
 };
 
-/* ── Small layout helpers ── */
-const SectionDivider = () => (
-  <div style={{ height: "1px", background: "var(--hairline)", margin: "2.5rem 0" }} />
-);
+const SectionDivider = () => <div className="section-divider" />;
 
 const FormSection = ({ number, label, children, right }) => (
-  <div style={{ marginBottom: "0" }}>
-    <div
-      style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        marginBottom: "1.5rem",
-      }}
-    >
+  <div>
+    <div className="form-section__head">
       <div style={{ display: "flex", alignItems: "center", gap: "0.625rem" }}>
-        <span
-          style={{
-            fontFamily: "var(--font-mono)", fontSize: "10px", fontWeight: 500,
-            letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--ink-4)",
-          }}
-        >
-          {number}
-        </span>
-        <span style={{ width: "1px", height: "12px", background: "var(--hairline-strong)" }} />
-        <span
-          style={{
-            fontFamily: "var(--font-mono)", fontSize: "10px", fontWeight: 500,
-            letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--ink-3)",
-          }}
-        >
-          {label}
-        </span>
+        <span className="form-section__num">{number}</span>
+        <span className="form-section__tick" />
+        <span className="form-section__label">{label}</span>
       </div>
       {right}
     </div>
@@ -511,23 +542,10 @@ const FormSection = ({ number, label, children, right }) => (
 
 const Field = ({ label, hint, required, children }) => (
   <div>
-    <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", marginBottom: "0.5rem" }}>
-      <label
-        style={{
-          fontFamily: "var(--font-mono)", fontSize: "10px", fontWeight: 500,
-          letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--ink-3)",
-        }}
-      >
-        {label}
-      </label>
-      {required && (
-        <span style={{ color: "var(--danger)", fontSize: "10px", fontFamily: "var(--font-mono)" }}>*</span>
-      )}
-      {hint && (
-        <span style={{ fontSize: "10px", color: "var(--ink-4)", fontFamily: "var(--font-mono)", letterSpacing: "0.05em" }}>
-          — {hint}
-        </span>
-      )}
+    <div className="field__head">
+      <label className="field-label">{label}</label>
+      {required && <span className="field__required">*</span>}
+      {hint && <span className="field__hint">— {hint}</span>}
     </div>
     {children}
   </div>

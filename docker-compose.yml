@@ -1,0 +1,43 @@
+# Local full-stack run: MongoDB + backend API + frontend.
+#
+#   docker compose up --build
+#
+# The backend reads its secrets from backend/.env (copy backend/.env.example).
+# MONGO_URI below overrides the file so the API talks to the `mongo` service.
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - pulseboard-db:/data/db
+    ports:
+      - "27017:27017"
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      MONGO_URI: mongodb://mongo:27017/pulse-board
+      NODE_ENV: production
+      PORT: "5001"
+    ports:
+      - "5001:5001"
+    depends_on:
+      - mongo
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:5001
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  pulseboard-db:

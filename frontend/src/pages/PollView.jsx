@@ -1,14 +1,12 @@
-import axios from "axios";
-import {
-    CheckCircle2,
-    Clock,
-    Loader2,
-    Lock
-} from "lucide-react";
+import { CheckCircle2, Clock, FileText, Info, Loader2, Lock } from "lucide-react";
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { getAnonymousId } from "../lib/anonId";
+import { apiClient } from "../lib/apiClient";
+
+const draftStorageKey = (id) => `pollAnswers:${id}`;
 
 const PollView = () => {
   const { id } = useParams();
@@ -18,26 +16,59 @@ const PollView = () => {
   const [isExpired, setIsExpired] = useState(false);
   const [loading, setLoading] = useState(true);
   const [answers, setAnswers] = useState({});
-  const [hasSubmitted, setHasSubmitted] = useState(false);
+  // Completion state after a submit attempt:
+  //   null       → still answering
+  //   "recorded" → a fresh response was accepted by the backend
+  //   "already"  → backend rejected it (409): this account/browser already
+  //                responded, so nothing new was recorded
+  const [completion, setCompletion] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     const fetchPoll = async () => {
       try {
-        const { data } = await axios.get(`/polls/${id}`);
+        const { data } = await apiClient.get(`/polls/${id}`);
+        if (cancelled) return;
         setPoll(data.poll);
         setIsExpired(data.isExpired);
+
+        // Re-hydrate answers preserved before a sign-in redirect.
+        try {
+          const saved = sessionStorage.getItem(draftStorageKey(id));
+          if (saved) {
+            setAnswers(JSON.parse(saved));
+            sessionStorage.removeItem(draftStorageKey(id));
+          }
+        } catch {
+          /* ignore malformed storage */
+        }
       } catch (error) {
-        toast.error(error.response?.data?.message || "Failed to load poll");
+        if (!cancelled) {
+          toast.error(error.response?.data?.message || "Failed to load poll");
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
     fetchPoll();
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   const handleOptionChange = (questionId, optionId) => {
     setAnswers((prev) => ({ ...prev, [questionId]: optionId }));
+  };
+
+  const goToLogin = () => {
+    // Preserve in-progress answers across the login round-trip.
+    try {
+      sessionStorage.setItem(draftStorageKey(id), JSON.stringify(answers));
+    } catch {
+      /* storage may be unavailable; proceed anyway */
+    }
+    navigate(`/login?next=${encodeURIComponent(`/polls/${id}`)}`);
   };
 
   const handleSubmit = async (e) => {
@@ -47,50 +78,63 @@ const PollView = () => {
     const formattedAnswers = Object.entries(answers).map(
       ([questionId, optionId]) => ({ questionId, optionId }),
     );
+    const payload = { answers: formattedAnswers };
+    // Anonymous polls: attach a stable per-browser participant token so the
+    // backend can block repeat participation. Not sent for authenticated polls.
+    if (poll.isAnonymous) payload.anonymousId = getAnonymousId();
     try {
-      await axios.post(`/polls/${id}/responses`, { answers: formattedAnswers });
+      await apiClient.post(`/polls/${id}/responses`, payload);
       toast.success("Response recorded!");
       if (poll.isPublished) {
         navigate(`/polls/${id}/results`);
       } else {
-        setHasSubmitted(true);
+        setCompletion("recorded");
       }
     } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to submit response");
+      if (error.response?.status === 409) {
+        // Backend authoritatively rejected this as a duplicate — this
+        // account/browser already responded. Surface a distinct
+        // already-participated state, NOT the fresh-success screen.
+        toast("You've already responded to this poll.");
+        setCompletion("already");
+      } else {
+        toast.error(
+          error.response?.data?.message || "Failed to submit response",
+        );
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  if (loading)
+  if (loading) {
     return (
       <div className="max-w-2xl mx-auto py-12">
-        <div className="skeleton-card" style={{ marginBottom: '1.25rem' }}>
-          <div className="skeleton-line" style={{ height: 28, width: '60%' }} />
-          <div className="skeleton-line short" style={{ height: 12, width: '45%', marginTop: 8 }} />
-          <div style={{ height: 12, marginTop: 14, width: '80%' }} className="skeleton-line" />
+        <div className="skeleton-card" style={{ marginBottom: "1.25rem" }}>
+          <div className="skeleton-line" style={{ height: 28, width: "60%" }} />
+          <div
+            className="skeleton-line short"
+            style={{ height: 12, width: "45%", marginTop: 8 }}
+          />
         </div>
-
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="skeleton-card" style={{ marginBottom: '1rem' }}>
-            <div className="skeleton-line short" style={{ height: 14, width: '20%' }} />
-            <div className="skeleton-line" style={{ height: 14, width: '70%', marginTop: 10 }} />
-            <div style={{ display: 'flex', gap: 12, marginTop: 14 }}>
-              <div className="skeleton-line" style={{ height: 10, width: 120 }} />
-              <div className="skeleton-line short" style={{ height: 10, width: 60 }} />
-            </div>
+          <div key={i} className="skeleton-card" style={{ marginBottom: "1rem" }}>
+            <div className="skeleton-line short" style={{ height: 14, width: "20%" }} />
+            <div
+              className="skeleton-line"
+              style={{ height: 14, width: "70%", marginTop: 10 }}
+            />
           </div>
         ))}
       </div>
     );
+  }
 
-  if (!poll)
+  if (!poll) {
     return (
-      <div className="text-center py-32">
-        <div style={{ fontFamily: "var(--font-display)", fontStyle: "italic", fontSize: "2.5rem", color: "var(--ink-3)", marginBottom: "1rem" }}>
-          Not found.
-        </div>
-        <p className="text-sm mb-6" style={{ color: "var(--ink-3)" }}>
+      <div className="status-page">
+        <div className="status-page__display-serif">Not found.</div>
+        <p className="status-page__text">
           This poll might have been deleted or the link is invalid.
         </p>
         <button onClick={() => navigate("/")} className="btn-secondary text-sm">
@@ -98,109 +142,158 @@ const PollView = () => {
         </button>
       </div>
     );
+  }
 
+  const isDraft = poll.status === "draft";
   const requiresAuth = !isExpired && !poll.isAnonymous && !user;
-  const isInteractive = !isExpired && !requiresAuth;
-  const answeredCount = Object.keys(answers).length;
-  const totalRequired = poll.questions.filter((q) => !q.isOptional).length;
-  const progress = poll.questions.length > 0 ? (answeredCount / poll.questions.length) * 100 : 0;
+  const isInteractive = !isExpired && !requiresAuth && !isDraft;
 
-  if (hasSubmitted) {
+  const requiredQuestions = poll.questions.filter((q) => !q.isOptional);
+  const requiredAnswered = requiredQuestions.filter((q) => answers[q._id]).length;
+  const allRequiredAnswered = requiredAnswered === requiredQuestions.length;
+  const answeredCount = Object.keys(answers).length;
+  const progress =
+    poll.questions.length > 0
+      ? (answeredCount / poll.questions.length) * 100
+      : 0;
+
+  if (completion === "recorded") {
     return (
       <div className="max-w-lg mx-auto py-24 animate-fade-in flex flex-col items-center text-center">
-        <div
-          style={{
-            width: "56px", height: "56px", borderRadius: "50%",
-            background: "var(--subtle)", border: "1px solid var(--hairline)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            marginBottom: "1.75rem",
-          }}
-        >
+        <div className="success-badge">
           <CheckCircle2 size={22} style={{ color: "var(--accent)" }} />
         </div>
         <h2 className="display-sm mb-3">Response recorded</h2>
-        <p style={{ color: "var(--ink-3)", fontSize: "0.9375rem", maxWidth: "28ch", lineHeight: 1.6 }}>
+        <p
+          style={{
+            color: "var(--ink-3)",
+            fontSize: "0.9375rem",
+            maxWidth: "28ch",
+            lineHeight: 1.6,
+          }}
+        >
           Thanks for participating. The creator will review these shortly.
         </p>
-        <button onClick={() => navigate("/")} className="btn-secondary mt-8 text-sm px-6">
+        <button
+          onClick={() => navigate("/")}
+          className="btn-secondary mt-8 text-sm px-6"
+        >
           Return Home
         </button>
       </div>
     );
   }
 
-  return (
-    <div className="max-w-2xl mx-auto pt-10 pb-16 animate-fade-in">
-      {/* POLL HEADER */}
-      <div className="mb-8 text-center">
-        <h1
+  if (completion === "already") {
+    return (
+      <div className="max-w-lg mx-auto py-24 animate-fade-in flex flex-col items-center text-center">
+        <div className="success-badge">
+          <Info size={22} style={{ color: "var(--ink-3)" }} />
+        </div>
+        <h2 className="display-sm mb-3">You’ve already participated</h2>
+        <p
           style={{
-            fontFamily: "var(--font-display)",
-            fontStyle: "italic",
-            fontSize: "clamp(2rem, 5vw, 3.5rem)",
-            lineHeight: 1.05,
-            letterSpacing: "-0.02em",
-            color: "var(--ink)",
-            marginBottom: "1rem",
+            color: "var(--ink-3)",
+            fontSize: "0.9375rem",
+            maxWidth: "34ch",
+            lineHeight: 1.6,
           }}
         >
-          {poll.title}
-        </h1>
-        {poll.description && (
-          <p style={{ fontSize: "1rem", color: "var(--ink-2)", lineHeight: 1.65, maxWidth: "42ch", margin: "0 auto" }}>
-            {poll.description}
-          </p>
-        )}
+          We already have a response from{" "}
+          {poll.isAnonymous ? "this browser" : "your account"} for this poll, so
+          nothing new was recorded. You can respond only once.
+        </p>
+        <div className="flex gap-3 mt-8">
+          {poll.isPublished && (
+            <button
+              onClick={() => navigate(`/polls/${id}/results`)}
+              className="btn-primary text-sm px-6"
+            >
+              View Results
+            </button>
+          )}
+          <button
+            onClick={() => navigate("/")}
+            className="btn-secondary text-sm px-6"
+          >
+            Return Home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto pt-10 pb-16 animate-fade-in">
+      <div className="mb-8 text-center">
+        <h1 className="poll-view__title">{poll.title}</h1>
+        {poll.description && <p className="poll-view__desc">{poll.description}</p>}
       </div>
 
-      {/* META ROW */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "1.25rem",
-          marginBottom: "2.5rem",
-          flexWrap: "wrap",
-        }}
-      >
-        <span className="mono-label">{poll.questions.length} question{poll.questions.length !== 1 ? "s" : ""}</span>
-        <span style={{ color: "var(--hairline-strong)" }}>·</span>
-        <span className="mono-label">{poll.isAnonymous ? "Anonymous" : "Authenticated"}</span>
+      <div className="poll-view__meta">
+        <span className="mono-label">
+          {poll.questions.length} question
+          {poll.questions.length !== 1 ? "s" : ""}
+        </span>
         <span style={{ color: "var(--hairline-strong)" }}>·</span>
         <span className="mono-label">
-          Closes {new Date(poll.expiresAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+          {poll.isAnonymous ? "Anonymous" : "Authenticated"}
+        </span>
+        <span style={{ color: "var(--hairline-strong)" }}>·</span>
+        <span className="mono-label">
+          Closes{" "}
+          {new Date(poll.expiresAt).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+          })}
         </span>
       </div>
 
-      {/* PROGRESS BAR (multi-question) */}
       {poll.questions.length > 1 && isInteractive && (
         <div style={{ marginBottom: "2.5rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
-            <span className="section-label">{answeredCount} of {poll.questions.length} answered</span>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              marginBottom: "0.5rem",
+            }}
+          >
+            <span className="section-label">
+              {answeredCount} of {poll.questions.length} answered
+            </span>
             <span className="section-label">{Math.round(progress)}%</span>
           </div>
-          <div style={{ height: "3px", background: "var(--subtle)", borderRadius: "99px", overflow: "hidden" }}>
-            <div
-              style={{
-                height: "100%",
-                borderRadius: "99px",
-                background: "var(--accent)",
-                width: `${progress}%`,
-                transition: "width 0.4s cubic-bezier(0.25, 1, 0.5, 1)",
-              }}
-            />
+          <div className="progress-track">
+            <div className="progress-track__fill" style={{ width: `${progress}%` }} />
           </div>
         </div>
       )}
 
-      {/* STATUS BANNERS */}
+      {isDraft && (
+        <div
+          className="polished-panel p-5 mb-8 flex gap-3"
+          style={{ borderLeft: "3px solid var(--accent)" }}
+        >
+          <FileText className="w-5 h-5 shrink-0 mt-0.5" style={{ color: "var(--accent)" }} />
+          <div>
+            <h3 className="banner__title">Draft preview</h3>
+            <p className="banner__text">
+              This poll is a draft and isn’t collecting responses yet. Launch it
+              from your dashboard to share it.
+            </p>
+          </div>
+        </div>
+      )}
+
       {isExpired && !poll.isPublished && (
-        <div className="polished-panel p-5 mb-8 flex gap-3" style={{ borderLeft: "3px solid var(--ink-4)" }}>
+        <div
+          className="polished-panel p-5 mb-8 flex gap-3"
+          style={{ borderLeft: "3px solid var(--ink-4)" }}
+        >
           <Clock className="w-5 h-5 shrink-0 mt-0.5" style={{ color: "var(--ink-4)" }} />
           <div>
-            <h3 style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--ink)", marginBottom: "0.25rem" }}>Poll Ended</h3>
-            <p style={{ fontSize: "0.875rem", color: "var(--ink-2)" }}>
+            <h3 className="banner__title">Poll Ended</h3>
+            <p className="banner__text">
               This poll is no longer accepting responses.
             </p>
           </div>
@@ -208,36 +301,50 @@ const PollView = () => {
       )}
 
       {isExpired && poll.isPublished && (
-        <div className="polished-panel p-5 mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4" style={{ borderLeft: "3px solid var(--success)" }}>
+        <div
+          className="polished-panel p-5 mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+          style={{ borderLeft: "3px solid var(--success)" }}
+        >
           <div className="flex gap-3">
-            <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5" style={{ color: "var(--success)" }} />
+            <CheckCircle2
+              className="w-5 h-5 shrink-0 mt-0.5"
+              style={{ color: "var(--success)" }}
+            />
             <div>
-              <h3 style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--ink)", marginBottom: "0.25rem" }}>Poll Completed</h3>
-              <p style={{ fontSize: "0.875rem", color: "var(--ink-2)" }}>Results have been published.</p>
+              <h3 className="banner__title">Poll Completed</h3>
+              <p className="banner__text">Results have been published.</p>
             </div>
           </div>
-          <button onClick={() => navigate(`/polls/${id}/results`)} className="btn-secondary text-sm">
+          <button
+            onClick={() => navigate(`/polls/${id}/results`)}
+            className="btn-secondary text-sm"
+          >
             View Results
           </button>
         </div>
       )}
 
       {requiresAuth && (
-        <div className="polished-panel p-5 mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4" style={{ borderLeft: "3px solid var(--accent)" }}>
+        <div
+          className="polished-panel p-5 mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+          style={{ borderLeft: "3px solid var(--accent)" }}
+        >
           <div className="flex gap-3">
             <Lock className="w-5 h-5 shrink-0 mt-0.5" style={{ color: "var(--accent)" }} />
             <div>
-              <h3 style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--ink)", marginBottom: "0.25rem" }}>Authentication Required</h3>
-              <p style={{ fontSize: "0.875rem", color: "var(--ink-2)" }}>Please sign in to participate in this poll.</p>
+              <h3 className="banner__title">Authentication Required</h3>
+              <p className="banner__text">
+                Please sign in to participate in this poll. Your answers so far
+                will be kept.
+              </p>
             </div>
           </div>
-          <button onClick={() => navigate("/login")} className="btn-primary text-sm">
+          <button onClick={goToLogin} className="btn-primary text-sm">
             Sign In
           </button>
         </div>
       )}
 
-      {/* QUESTIONS */}
       <form onSubmit={handleSubmit} className="space-y-5">
         {poll.questions.map((q, i) => (
           <div
@@ -250,71 +357,33 @@ const PollView = () => {
               transition: "opacity 0.2s, filter 0.2s",
             }}
           >
-            {/* Question header */}
             <div style={{ marginBottom: "1.5rem" }}>
-              <div style={{ display: "flex", alignItems: "flex-start", gap: "0.875rem" }}>
-                <span
-                  style={{
-                    fontFamily: "var(--font-display)",
-                    fontStyle: "italic",
-                    fontSize: "2rem",
-                    lineHeight: 1,
-                    color: "var(--ink-4)",
-                    flexShrink: 0,
-                    marginTop: "2px",
-                  }}
-                >
-                  {i + 1}.
-                </span>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "0.875rem",
+                }}
+              >
+                <span className="poll-view__q-index">{i + 1}.</span>
                 <div>
-                  <h3
-                    style={{
-                      fontSize: "0.9375rem",
-                      fontWeight: 600,
-                      letterSpacing: "-0.01em",
-                      color: "var(--ink)",
-                      lineHeight: 1.4,
-                      margin: 0,
-                    }}
+                  <h3 className="poll-view__q-text">{q.text}</h3>
+                  <span
+                    className={
+                      q.isOptional
+                        ? "poll-view__q-tag"
+                        : "poll-view__q-tag poll-view__q-tag--required"
+                    }
                   >
-                    {q.text}
-                  </h3>
-                  {!q.isOptional ? (
-                    <span
-                      style={{
-                        fontFamily: "var(--font-mono)",
-                        fontSize: "9px",
-                        letterSpacing: "0.1em",
-                        textTransform: "uppercase",
-                        color: "var(--danger)",
-                        opacity: 0.8,
-                        display: "inline-block",
-                        marginTop: "4px",
-                      }}
-                    >
-                      Required
-                    </span>
-                  ) : (
-                    <span
-                      style={{
-                        fontFamily: "var(--font-mono)",
-                        fontSize: "9px",
-                        letterSpacing: "0.1em",
-                        textTransform: "uppercase",
-                        color: "var(--ink-4)",
-                        display: "inline-block",
-                        marginTop: "4px",
-                      }}
-                    >
-                      Optional
-                    </span>
-                  )}
+                    {q.isOptional ? "Optional" : "Required"}
+                  </span>
                 </div>
               </div>
             </div>
 
-            {/* OPTIONS */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.625rem" }}>
+            <div
+              style={{ display: "flex", flexDirection: "column", gap: "0.625rem" }}
+            >
               {q.options.map((opt) => {
                 const isSelected = answers[q._id] === opt._id;
                 return (
@@ -347,8 +416,20 @@ const PollView = () => {
                       {opt.text}
                     </span>
                     {isSelected && (
-                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
-                        <path d="M2.5 7L5.5 10L11.5 4" stroke="var(--ink)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 14 14"
+                        fill="none"
+                        style={{ flexShrink: 0 }}
+                      >
+                        <path
+                          d="M2.5 7L5.5 10L11.5 4"
+                          stroke="var(--ink)"
+                          strokeWidth="1.75"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
                       </svg>
                     )}
                   </label>
@@ -358,35 +439,13 @@ const PollView = () => {
           </div>
         ))}
 
-        {/* SUBMIT */}
         {isInteractive && (
-          <div style={{ paddingTop: "1.5rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.75rem" }}>
+          <div className="poll-view__submit-row">
             <button
               type="submit"
-              disabled={isSubmitting}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "0.5rem",
-                background: "var(--ink)",
-                color: "var(--paper)",
-                border: "1px solid var(--ink)",
-                borderRadius: "7px",
-                padding: "0.875rem 3rem",
-                fontFamily: "var(--font-body)",
-                fontSize: "0.9375rem",
-                fontWeight: 600,
-                letterSpacing: "0.01em",
-                cursor: isSubmitting ? "not-allowed" : "pointer",
-                opacity: isSubmitting ? 0.6 : 1,
-                transition: "opacity 0.15s, transform 0.1s",
-                minWidth: "200px",
-              }}
-              onMouseEnter={(e) => { if (!isSubmitting) e.currentTarget.style.opacity = "0.85"; }}
-              onMouseLeave={(e) => { if (!isSubmitting) e.currentTarget.style.opacity = "1"; }}
-              onMouseDown={(e) => { e.currentTarget.style.transform = "scale(0.978)"; }}
-              onMouseUp={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
+              disabled={isSubmitting || !allRequiredAnswered}
+              className="poll-view__submit"
+              data-disabled={isSubmitting || !allRequiredAnswered}
             >
               {isSubmitting ? (
                 <>
@@ -397,9 +456,11 @@ const PollView = () => {
                 <>Submit Answers →</>
               )}
             </button>
-            {totalRequired > 0 && answeredCount < totalRequired && (
+            {!allRequiredAnswered && (
               <p className="section-label" style={{ color: "var(--ink-4)" }}>
-                {totalRequired - answeredCount} required question{totalRequired - answeredCount !== 1 ? "s" : ""} remaining
+                {requiredQuestions.length - requiredAnswered} required question
+                {requiredQuestions.length - requiredAnswered !== 1 ? "s" : ""}{" "}
+                remaining
               </p>
             )}
           </div>

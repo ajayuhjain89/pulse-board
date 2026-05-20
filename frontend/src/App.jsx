@@ -2,14 +2,21 @@ import { GoogleOAuthProvider } from "@react-oauth/google";
 import { CheckCircle, Loader2, XCircle } from "lucide-react";
 import { Toaster } from "react-hot-toast";
 import { BrowserRouter } from "react-router-dom";
+import ErrorBoundary from "./components/ErrorBoundary";
 import Navbar from "./components/Navbar";
+import ScrollToTop from "./components/ScrollToTop";
+import TopProgressBar from "./components/TopProgressBar";
 import { AuthProvider } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import Pages from "./pages";
 
-// Initialize with an env variable
-const GOOGLE_CLIENT_ID =
-  import.meta.env.VITE_GOOGLE_CLIENT_ID || "YOUR_GOOGLE_CLIENT_ID";
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
+
+if (!GOOGLE_CLIENT_ID) {
+  console.warn(
+    "[App] VITE_GOOGLE_CLIENT_ID is not set — Google sign-in will be unavailable.",
+  );
+}
 
 function App() {
   return (
@@ -17,18 +24,31 @@ function App() {
       <ThemeProvider>
         <AuthProvider>
           <BrowserRouter>
-            <div className="min-h-screen text-(--ink) transition-colors duration-300 ease-in-out font-sans relative" style={{background: 'var(--paper)'}}>
+            <ScrollToTop />
+            <TopProgressBar />
+            <a href="#main" className="skip-link">
+              Skip to content
+            </a>
+            <div
+              className="min-h-screen text-(--ink) transition-colors duration-300 ease-in-out font-sans relative"
+              style={{ background: "var(--paper)" }}
+            >
               <Navbar />
 
-              <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                <Pages />
+              <main
+                id="main"
+                tabIndex={-1}
+                className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8"
+              >
+                <ErrorBoundary>
+                  <Pages />
+                </ErrorBoundary>
               </main>
 
               <Toaster
                 position="top-center"
                 toastOptions={{
                   duration: 3000,
-                  // Unified toast style — subtle, compact, and refined
                   style: {
                     background: "var(--toast-bg)",
                     color: "var(--toast-color)",
@@ -41,16 +61,9 @@ function App() {
                     lineHeight: 1.2,
                     alignItems: "center",
                   },
-                  // Use elegant monochrome icons instead of emoji
-                  success: {
-                    icon: <CheckCircle size={18} />,
-                  },
-                  error: {
-                    icon: <XCircle size={18} />,
-                  },
-                  loading: {
-                    icon: <Loader2 size={18} className="animate-spin" />,
-                  },
+                  success: { icon: <CheckCircle size={18} /> },
+                  error: { icon: <XCircle size={18} /> },
+                  loading: { icon: <Loader2 size={18} className="animate-spin" /> },
                 }}
               />
             </div>

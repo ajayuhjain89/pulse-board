@@ -1,21 +1,58 @@
 <!doctype html>
-<html lang="en" class="dark" style="background-color: #0e0d0b;">
+<html lang="en">
   <head>
     <script>
-      (function() {
-        const theme = localStorage.getItem('theme') || 'dark';
-        document.documentElement.classList.add(theme);
+      // Apply the theme before first paint to avoid a flash. Mirrors the
+      // default logic in ThemeContext: stored preference, else system.
+      (function () {
+        try {
+          var stored = localStorage.getItem("theme");
+          var isDark = stored
+            ? stored === "dark"
+            : window.matchMedia("(prefers-color-scheme: dark)").matches;
+          if (isDark) document.documentElement.classList.add("dark");
+          document.documentElement.style.backgroundColor = isDark
+            ? "#0e0d0b"
+            : "#f7f5f2";
+        } catch (e) {
+          /* localStorage/matchMedia unavailable — fall back to light */
+        }
       })();
     </script>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <meta
+      name="description"
+      content="PulseBoard — create real-time polls, share them in seconds, and watch insights arrive live."
+    />
+    <meta name="theme-color" content="#f7f5f2" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0e0d0b" media="(prefers-color-scheme: dark)" />
+
+    <!-- Open Graph / Twitter -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="PulseBoard — real-time polling" />
+    <meta
+      property="og:description"
+      content="Create real-time polls, share them in seconds, and watch insights arrive live."
+    />
+    <meta property="og:image" content="/favicon.svg" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="PulseBoard — real-time polling" />
+    <meta
+      name="twitter:description"
+      content="Create real-time polls, share them in seconds, and watch insights arrive live."
+    />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
     <title>PulseBoard</title>
   </head>
-  <body style="background-color: #0e0d0b; margin: 0;">
+  <body style="margin: 0">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

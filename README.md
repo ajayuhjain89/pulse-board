@@ -1,83 +1,110 @@
 # PulseBoard
 
-PulseBoard is a minimal, real-time polling platform built on the MERN stack. It prioritizes fluid interface design and instant data synchronization, serving as a lightweight alternative to traditional polling software.
-
-The application design system is heavily inspired by modern interfaces like Vercel and Linear. It utilizes custom native CSS spring physics, staggered orchestration, and tokenized DOM variables to achieve a premium 120Hz feel without relying on bloated animation libraries.
+PulseBoard is a real-time polling platform built on the MERN stack. It pairs a
+hardened Express API with a React single-page app, synchronising results live
+over WebSockets.
 
 ## Technical Overview
 
-- **Client:** React 19, Vite, Tailwind CSS v4.3
-- **Server:** Node.js, Express, MongoDB (Mongoose)
-- **Real-time Engine:** Socket.io
-- **Authentication pipeline:** JWT sessions, Google OAuth integration, and isolated NodeMailer/SendGrid OTP verification flows.
+- **Client:** React 19, Vite, Tailwind CSS v4, React Router 7
+- **Server:** Node.js, Express 5, MongoDB (Mongoose 9)
+- **Real-time:** Socket.IO (authenticated, room-scoped)
+- **Auth:** in-memory access token (JWT) + httpOnly rotating refresh-token
+  cookie, bcrypt-hashed OTP email verification, Google OAuth (authorization-code
+  flow), CSRF protection on cookie endpoints.
 
 ## Repository Structure
 
-The architecture is split into a standard client-server monorepo.
-
 ```text
 pulse-board/
-├── backend/     # Express REST API & Websocket listener
-└── frontend/    # React Single Page Application
+├── backend/      # Express REST API + Socket.IO
+│   ├── config/        # env validation
+│   ├── controllers/   # request handlers
+│   ├── services/      # token + analytics logic
+│   ├── middleware/     # auth, csrf, rate limits, error handler
+│   ├── models/        # Mongoose schemas
+│   ├── routes/        # thin route wiring
+│   ├── utils/         # email, validators, socket emit, cookies
+│   └── tests/         # vitest unit tests
+└── frontend/     # React single-page application
 ```
 
 ## Local Setup
 
-### 1. External Requirements
-Before running the application, ensure you have:
-- A local MongoDB instance or a remote Atlas connection string.
-- A Google OAuth Client ID.
-- A SendGrid API key for the transactional email pipeline.
+### Requirements
 
-### 2. Backend Initialization
-Navigate to the `backend` directory to install dependencies and configure the environment.
+- Node.js 20+
+- A local MongoDB instance or an Atlas connection string
+- A Google OAuth client (Client ID **and** Client Secret) — optional, only for
+  Google sign-in
+- A SendGrid API key (or any SMTP credentials) — optional, only for OTP email
+
+### 1. Backend
 
 ```bash
 cd backend
 npm install
+cp .env.example .env   # then fill in the values
+npm run dev            # starts on http://localhost:5001
 ```
 
-Create a `.env` file in the `backend` directory:
-```env
-PORT=5001
-MONGO_URI=mongodb://127.0.0.1:27017/pulse-board
-JWT_SECRET=your_jwt_signing_secret
-GOOGLE_CLIENT_ID=your_google_oauth_client_id
+The server **validates its environment on boot** and refuses to start if a
+required variable is missing or invalid. `JWT_SECRET` must be at least 32
+characters — generate one with `openssl rand -hex 32`. See `.env.example` for
+every variable.
 
-# SMTP Configuration (SendGrid)
-SMTP_HOST=smtp.sendgrid.net
-SMTP_PORT=587
-SMTP_USER=apikey
-SMTP_PASS=your_sendgrid_api_key
-EMAIL_FROM="PulseBoard Auth" <noreply@yourdomain.com>
-```
-
-Boot the server:
-```bash
-npm run dev
-```
-
-### 3. Frontend Initialization
-In a separate terminal, navigate to your `frontend` directory.
+### 2. Frontend
 
 ```bash
 cd frontend
 npm install
+cp .env.example .env   # then fill in the values
+npm run dev            # starts on http://localhost:5173
 ```
 
-Create a `.env` file in the `frontend` directory:
-```env
-VITE_API_URL=http://localhost:5001/api
-VITE_GOOGLE_CLIENT_ID=your_google_oauth_client_id
-```
+`VITE_API_URL` must point at the backend **origin only** (no path) — the app
+appends `/api/v1` itself.
 
-Start the Vite development pipeline:
+## API
+
+REST endpoints are served under `/api/v1` (the legacy unversioned `/api` prefix
+is kept as an alias). A `GET /health` endpoint reports DB connectivity.
+
+## Scripts
+
+| Location  | Command          | Description                       |
+| --------- | ---------------- | --------------------------------- |
+| backend   | `npm run dev`    | Start API with file watching      |
+| backend   | `npm start`      | Start API                         |
+| backend   | `npm test`       | Run unit tests (vitest)           |
+| frontend  | `npm run dev`    | Start Vite dev server             |
+| frontend  | `npm run build`  | Production build                  |
+| frontend  | `npm run lint`   | ESLint                            |
+| frontend  | `npm test`       | Run component tests (vitest)      |
+
+## Docker
+
+A full local stack (MongoDB + API + web) is available via Compose:
+
 ```bash
-npm run dev
+docker compose up --build
 ```
 
-## Design & Architecture Notes
+The backend still reads secrets from `backend/.env`.
 
-- **Native UI Physics:** Button transitions and card reveals utilize explicit cubic-bezier curves (e.g., `cubic-bezier(0.16, 1, 0.3, 1)`) to emulate native OS spring physics. This maintains absolute 60/120fps performance by offloading calculations directly to the GPU instead of JavaScript.
-- **Micro-interactions:** Skeletons utilize CSS-driven gradient saturation to create a glass-shimmering effect, and frosted navigations compute `backdrop-filter` dynamically based on scroll delta.
-- **Stateless Poll Streams:** Socket.io handles vote mutations over isolated channels. Clients join volatile room hashes mapped identically to the poll ID in view, ensuring network operations remain perfectly isolated.
+## Migrations
+
+Schema/data changes that require manual steps against an existing database are
+documented in [`backend/MIGRATIONS.md`](backend/MIGRATIONS.md).
+
+## Security Notes
+
+- Access tokens live only in memory on the client; the refresh token is an
+  httpOnly, rotating cookie. There is no token in `localStorage`.
+- OTPs are bcrypt-hashed at rest, expire after 10 minutes, and lock out after
+  repeated failures.
+- Auth endpoints are rate-limited; login and OTP verification have additional
+  per-account lockouts.
+- For cross-domain deployments (web and API on different domains) cookies are
+  issued with `SameSite=None; Secure`. If third-party cookies are blocked the
+  refresh flow degrades to per-session re-login.
